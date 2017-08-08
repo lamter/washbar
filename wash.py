@@ -5,11 +5,14 @@ import logging.config
 import json
 import pytz
 from bson.codec_options import CodecOptions
+from itertools import chain
 
 import pymongo
 from pymongo.errors import ServerSelectionTimeoutError
 import tradingtime as tt
 import pandas as pd
+
+from drdata import DRData
 
 
 class Washer(object):
@@ -27,9 +30,10 @@ class Washer(object):
 
         self.log = logging.getLogger('main')
 
+
         # 设定当前要处理的交易日
         self.isTradingDay, self.tradingDay = tt.get_tradingday(
-            datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0))
+            datetime.datetime.now(self.LOCAL_TIMEZONE).replace(hour=8, minute=0, second=0, microsecond=0))
 
         self.initLog(loggingConfig)
 
@@ -81,14 +85,13 @@ class Washer(object):
         :return:
         """
 
-
-
         self.mongoCollections.clear()
         for conf in self.mongoConf:
             self.log.info('建立 mongo 链接 {}'.format(json.dumps(conf, indent=1)))
             db = pymongo.MongoClient(conf['host'], conf['port'])[conf['dbn']]
             db.authenticate(conf['username'], conf['password'])
-            c = db[conf['collection']].with_options(codec_options=CodecOptions(tz_aware=True, tzinfo=self.LOCAL_TIMEZONE))
+            c = db[conf['collection']].with_options(
+                codec_options=CodecOptions(tz_aware=True, tzinfo=self.LOCAL_TIMEZONE))
             self.mongoCollections.append(c)
 
     def start(self):
@@ -97,11 +100,13 @@ class Washer(object):
         :return:
         """
 
-        # TODO 清除多余的 bar
-        self.loadOriginData()
-        self.clearBar()
+        # 清除多余的 bar
+        # self.loadOriginData()
+        # self.clearBar()
 
-        # TODO 多个 bar 之间的数据
+        # 多个 bar 之间的数据
+        self.loadOriginData()
+        self.aggregated()
 
     def loadOriginData(self):
         """
@@ -113,7 +118,7 @@ class Washer(object):
         for collection in self.mongoCollections:
             assert isinstance(collection, pymongo.collection.Collection)
             sql = {'tradingDay': self.tradingDay}
-            cursor = collection.find(sql)
+            cursor = collection.find(sql).hint('tradingDay')
             self.originDatas.append((i for i in cursor))
 
     def clearBar(self):
@@ -121,6 +126,27 @@ class Washer(object):
         一个 bar 只能有一个，并且清除多余的 bar
         :return:
         """
-        for od in self.originDatas:
-            df = pd.DataFrame(od)
+        for i, od in enumerate(self.originDatas):
+            df = pd.DataFrame(od, columns=['_id', 'datetime', 'symbol', 'volume']).sort('datetime')
 
+            # 去重后的数据
+            df = df[df.duplicated(['symbol', 'volume'])]
+
+            # # # 删除当天所有的数据，重新写入
+            c = self.mongoCollections[i]
+            assert isinstance(c, pymongo.collection.Collection)
+
+            for _id in df['_id']:
+                c.delete_one({'_id': _id})
+            #
+            if __debug__:
+                self.log.debug('删除了多余的 {} 个bar'.format(df.shape[0]))
+
+    def aggregated(self):
+        """
+        再次聚合数据
+        :return:
+        """
+        # TODO 再次聚合数据
+        df = pd.DataFrame([i for i in chain(self.originDatas)])
+        print(df.head())
