@@ -4,6 +4,7 @@ import logging
 import logging.config
 import json
 import pytz
+from threading import Thread
 from bson.codec_options import CodecOptions
 from itertools import chain
 
@@ -26,18 +27,16 @@ class Washer(object):
         self.mongoConf = mongoConf  # [{conf}, {conf}]
         self.mongoCollections = []  # 是 collections, 不是 client, db
 
-        self.originDatas = []  # [originDatas]
+        self.initLog(loggingConfig)
+        self.log = logging.getLogger()
 
-        self.log = logging.getLogger('main')
-
+        self.drDataLocal = DRData(self, 'drDataLocal', mongoConf['mongoLocal'])
+        self.drDataRemote = DRData(self, 'drDataRemote', mongoConf['mongoRemote'])
 
         # 设定当前要处理的交易日
         self.isTradingDay, self.tradingDay = tt.get_tradingday(
-            datetime.datetime.now(self.LOCAL_TIMEZONE).replace(hour=8, minute=0, second=0, microsecond=0))
-
-        self.initLog(loggingConfig)
-
-        self.initMongo()
+            datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0))
+        self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
 
     def initLog(self, loggingconf):
         """
@@ -59,7 +58,6 @@ class Washer(object):
             except ServerSelectionTimeoutError:
                 print(u'Mongohandler 初始化失败，检查 MongoDB 否正常')
                 raise
-            self.log = logging.getLogger('main')
 
         else:
             self.log = logging.getLogger()
@@ -79,74 +77,122 @@ class Washer(object):
             self.log.addHandler(sh)
             self.log.warning(u'未配置 loggingconfig')
 
-    def initMongo(self):
-        """
-
-        :return:
-        """
-
-        self.mongoCollections.clear()
-        for conf in self.mongoConf:
-            self.log.info('建立 mongo 链接 {}'.format(json.dumps(conf, indent=1)))
-            db = pymongo.MongoClient(conf['host'], conf['port'])[conf['dbn']]
-            db.authenticate(conf['username'], conf['password'])
-            c = db[conf['collection']].with_options(
-                codec_options=CodecOptions(tz_aware=True, tzinfo=self.LOCAL_TIMEZONE))
-            self.mongoCollections.append(c)
-
     def start(self):
         """
 
         :return:
         """
 
+        self.log.info('清洗 {} 的数据'.format(self.tradingDay.date()))
+
         # 清除多余的 bar
-        # self.loadOriginData()
-        # self.clearBar()
+        self.loadOriginData()
+        self.clearBar()
 
         # 多个 bar 之间的数据
-        self.loadOriginData()
-        self.aggregated()
+        self.aggregatedAll()
 
     def loadOriginData(self):
         """
-        加载原始数据
+        从数据库加载数据
         :return:
         """
 
-        self.originDatas.clear()
-        for collection in self.mongoCollections:
-            assert isinstance(collection, pymongo.collection.Collection)
-            sql = {'tradingDay': self.tradingDay}
-            cursor = collection.find(sql).hint('tradingDay')
-            self.originDatas.append((i for i in cursor))
+        t = Thread(target=self.drDataRemote.loadOriginData)
+        t.start()
+        self.drDataLocal.loadOriginData()
+        if t.isAlive():
+            t.join()
 
     def clearBar(self):
         """
         一个 bar 只能有一个，并且清除多余的 bar
         :return:
         """
-        for i, od in enumerate(self.originDatas):
-            df = pd.DataFrame(od, columns=['_id', 'datetime', 'symbol', 'volume']).sort('datetime')
+        t = Thread(target=self.drDataRemote.clearBar())
+        t.start()
+        self.drDataLocal.clearBar()
+        if t.isAlive():
+            t.join()
 
-            # 去重后的数据
-            df = df[df.duplicated(['symbol', 'volume'])]
-
-            # # # 删除当天所有的数据，重新写入
-            c = self.mongoCollections[i]
-            assert isinstance(c, pymongo.collection.Collection)
-
-            for _id in df['_id']:
-                c.delete_one({'_id': _id})
-            #
-            if __debug__:
-                self.log.debug('删除了多余的 {} 个bar'.format(df.shape[0]))
-
-    def aggregated(self):
+    def aggregatedAll(self):
         """
         再次聚合数据
         :return:
         """
-        # TODO 再次聚合数据
-        df = pd.DataFrame([i for i in chain(self.originDatas)])
-        print(df.head())
+        # 聚合数据
+        symbolsChain = chain(self.drDataLocal.originData.keys(), self.drDataRemote.originData.keys())
+        for symbol in symbolsChain:
+            self.aggregate(symbol)
+
+    def aggregate(self, symbol):
+        """
+        聚合指定合约的数据
+        :param symbol:
+        :return:
+        """
+        localData = self.drDataLocal.originData.get(symbol)
+        remoteData = self.drDataRemote.originData.get(symbol)
+
+        # assert isinstance(localData, pd.DataFrame)
+        # assert isinstance(remoteData, pd.DataFrame)
+
+        # 整个合约数据丢失
+        if localData is not None and localData is not None:
+            # 两者都有数据
+            self.log.debug('{} 两地都有数据')
+            pass
+        elif localData is None:
+            # 本地完全没有 这个合约的数据
+            self.drDataLocal.makeupBar(symbol, remoteData)
+            return
+        elif remoteData is None:
+            self.drDataRemote.makeupBar(symbol, localData)
+            return
+        else:
+            # 两个都是错误的
+            self.log.critical('local 和 remote 都没有 symbol {} 的数据'.format(symbol))
+            return
+
+        # 衔接两地数据
+        df = localData.append(remoteData)
+        assert isinstance(df, pd.DataFrame)
+        df = df.set_index('datetime').sort_index()
+
+        # 聚合
+        r = df.resample('1T', closed='left', label='left')
+        close = r.close.last()
+        date = r.date.last()
+        high = r.high.max()
+        low = r.low.min()
+        lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
+        _open = r.open.first()
+        openInterest = r.openInterest.max()
+        symbol = df['symbol'][0]  # r.symbol.
+        time = r.time.last()
+        tradingDay = df['tradingDay'][0]
+        upperLimit = df['upperLimit'][0]
+        volume = r.volume.max()
+
+        # 构建新的完整的数据
+        ndf = pd.DataFrame({
+            'close': close,
+            'date': date,
+            'high': high,
+            'low': low,
+            'lowerLimit': lowerLimit,
+            'open': _open,
+            'openInterest': openInterest,
+            'symbol': symbol,
+            'time': time,
+            'tradingDay': tradingDay,
+            'upperLimit': upperLimit,
+            'volume': volume,
+        }).dropna(how='any')
+        ndf.openInterest = ndf.openInterest.astype('int')
+        ndf.volume = ndf.volume.astype('int')
+        ndf['datetime'] = ndf.index
+
+        # 对比并更新数据
+        self.drDataLocal.aggreate(ndf, localData)
+        self.drDataRemote.aggreate(ndf, remoteData)
