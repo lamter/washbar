@@ -26,7 +26,6 @@ class Washer(object):
         self.mongoCollections = []  # 是 collections, 不是 client, db
 
         self.initLog(loggingConfig)
-        self.log = logging.getLogger()
 
         self.drDataLocal = DRData(self, DRData.TYPE_LOCAL, mongoConf['mongoLocal'])
         self.drDataRemote = DRData(self, DRData.TYPE_REMOTE, mongoConf['mongoRemote'])
@@ -35,8 +34,6 @@ class Washer(object):
         self.isTradingDay, self.tradingDay = tt.get_tradingday(
             datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0))
         self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
-
-        self.log.info('isTradingDay {}; tradingDay  '.format(self.isTradingDay, self.tradingDay))
 
     def initLog(self, loggingconf):
         """
@@ -58,7 +55,7 @@ class Washer(object):
             except ServerSelectionTimeoutError:
                 print(u'Mongohandler 初始化失败，检查 MongoDB 否正常')
                 raise
-
+            self.log = logging.getLogger('root')
         else:
             self.log = logging.getLogger()
             self.log.setLevel('DEBUG')
@@ -82,7 +79,7 @@ class Washer(object):
 
         :return:
         """
-
+        self.log.info('isTradingDay: {}'.format(self.isTradingDay))
         self.log.info('清洗 {} 的数据'.format(self.tradingDay.date()))
 
         # 清除多余的 bar
@@ -140,7 +137,6 @@ class Washer(object):
         # 整个合约数据丢失
         if localData is not None and remoteData is not None:
             # 两者都有数据
-            self.log.debug('{} 两地都有数据')
             pass
         elif localData is None:
             # 本地完全没有 这个合约的数据
