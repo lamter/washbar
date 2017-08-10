@@ -2,6 +2,7 @@ import json
 from wash import Washer
 
 settingFile = 'conf/kwarg.json'
+loggingConfigFile = 'conf/logconfig.json'
 if __debug__:
     settingFile = 'tmp/kwarg.json'
     loggingConfigFile = 'tmp/logconfig.json'

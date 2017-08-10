@@ -2,10 +2,8 @@ import sys
 import datetime
 import logging
 import logging.config
-import json
 import pytz
 from threading import Thread
-from bson.codec_options import CodecOptions
 from itertools import chain
 
 import pymongo
@@ -30,8 +28,8 @@ class Washer(object):
         self.initLog(loggingConfig)
         self.log = logging.getLogger()
 
-        self.drDataLocal = DRData(self, 'drDataLocal', mongoConf['mongoLocal'])
-        self.drDataRemote = DRData(self, 'drDataRemote', mongoConf['mongoRemote'])
+        self.drDataLocal = DRData(self, DRData.TYPE_LOCAL, mongoConf['mongoLocal'])
+        self.drDataRemote = DRData(self, DRData.TYPE_REMOTE, mongoConf['mongoRemote'])
 
         # 设定当前要处理的交易日
         self.isTradingDay, self.tradingDay = tt.get_tradingday(
@@ -138,7 +136,7 @@ class Washer(object):
         # assert isinstance(remoteData, pd.DataFrame)
 
         # 整个合约数据丢失
-        if localData is not None and localData is not None:
+        if localData is not None and remoteData is not None:
             # 两者都有数据
             self.log.debug('{} 两地都有数据')
             pass
@@ -195,4 +193,4 @@ class Washer(object):
 
         # 对比并更新数据
         self.drDataLocal.aggreate(ndf, localData)
-        self.drDataRemote.aggreate(ndf, remoteData)
+        # self.drDataRemote.aggreate(ndf, remoteData)

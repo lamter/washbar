@@ -13,16 +13,19 @@ class DRData(object):
     """
     每个 dr 数据实例
     """
+    TYPE_REMOTE = 'remote'
+    TYPE_LOCAL = 'local'
 
-    def __init__(self, mainEngine, name, mongoConf):
+    def __init__(self, mainEngine, type, mongoConf):
         """
 
         :param mongoConf: {}
         """
-        self.name = name
+        self.type = type
         self.mainEngine = mainEngine
         self.mongoConf = mongoConf
-        self.log = logging.getLogger(self.name)
+        logName = 'drDataLocal' if self.type == self.TYPE_LOCAL else 'drDataRemote'
+        self.log = logging.getLogger(logName)
 
         # 初始化 MongoDB 链接
         self.log.info('建立 mongo 链接 {}'.format(json.dumps(mongoConf, indent=1)))
@@ -34,6 +37,10 @@ class DRData(object):
 
         # 原始数据
         self.originData = {}  # {symbol: DataFrame()}
+
+    @property
+    def isLocal(self):
+        return self.type == self.TYPE_LOCAL
 
     def loadOriginData(self):
         """
@@ -71,14 +78,15 @@ class DRData(object):
 
             _ids = df['_id'][dunplicatedSeries]
 
-            # # # 删除当天所有的数据，重新写入
-            for _id in _ids:
-                sql = {
-                    '_id': _id,
-                    'tradingDay': self.mainEngine.tradingDay
-                }
-                self.collection.delete_one(sql)
-                count += 1
+            if self.isLocal:
+                # 对于本地的数据，删除当天所有的数据，重新写入
+                for _id in _ids:
+                    sql = {
+                        '_id': _id,
+                        'tradingDay': self.mainEngine.tradingDay
+                    }
+                    self.collection.delete_one(sql)
+                    count += 1
 
             # 更新数据
             self.originData[symbol] = odf[dunplicatedSeries == False]
@@ -117,20 +125,25 @@ class DRData(object):
         ndf['_id'] = newLocalDF['_id']
         upsertDF = ndf[newLocalDF.upsert]
 
-        insertManyDF = upsertDF[ndf._id.isnull()]
-        if __debug__:
-            symbol = ndf['symbol'][0]
-            self.log.info('{} 补充了 {} 个 bar'.format(symbol, insertManyDF.shape[0]))
+        insertManyDF = upsertDF[upsertDF._id.isnull()]
+
+        symbol = ndf['symbol'][0]
+
+        n = insertManyDF.shape[0]
+        if n > 0:
+            self.log.info('{} 补充了 {} 个 bar'.format(symbol, n))
+
         # 批量保存的
         if insertManyDF.shape[0] > 0:
             del insertManyDF['_id']
             r = self.collection.insert_many(insertManyDF.to_dict('records'))
 
         # 逐个更新的
-        updateOneDF = upsertDF[ndf._id.isnull().apply(lambda x:not x)]
-        if __debug__:
-            symbol = ndf['symbol'][0]
-            self.log.info('{} 更新到了 {} 个 bar'.format(symbol, upsertDF.shape[0]))
+        updateOneDF = upsertDF[upsertDF._id.isnull().apply(lambda x: not x)]
+
+        n = upsertDF.shape[0]
+        if n > 0:
+            self.log.info('{} 更新到了 {} 个 bar'.format(symbol, 0))
         if updateOneDF.shape[0] > 0:
             documents = updateOneDF.to_dict('records')
 
