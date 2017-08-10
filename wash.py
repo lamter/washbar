@@ -36,6 +36,8 @@ class Washer(object):
             datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0))
         self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
 
+        self.log.info('isTradingDay {}; tradingDay  '.format(self.isTradingDay, self.tradingDay))
+
     def initLog(self, loggingconf):
         """
         初始化日志
