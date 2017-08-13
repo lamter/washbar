@@ -78,15 +78,15 @@ class DRData(object):
 
             _ids = df['_id'][dunplicatedSeries]
 
-            if self.isLocal:
-                # 对于本地的数据，删除当天所有的数据，重新写入
-                for _id in _ids:
-                    sql = {
-                        '_id': _id,
-                        'tradingDay': self.mainEngine.tradingDay
-                    }
-                    self.collection.delete_one(sql)
-                    count += 1
+            # if self.isLocal:
+            # 对于本地的数据，删除当天所有的数据，重新写入
+            for _id in _ids:
+                sql = {
+                    '_id': _id,
+                    'tradingDay': self.mainEngine.tradingDay
+                }
+                self.collection.delete_one(sql)
+                count += 1
 
             # 更新数据
             self.originData[symbol] = odf[dunplicatedSeries == False]

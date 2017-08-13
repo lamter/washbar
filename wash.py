@@ -191,4 +191,4 @@ class Washer(object):
 
         # 对比并更新数据
         self.drDataLocal.aggreate(ndf, localData)
-        # self.drDataRemote.aggreate(ndf, remoteData)
+        self.drDataRemote.aggreate(ndf, remoteData)
