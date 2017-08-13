@@ -100,7 +100,7 @@ class DRData(object):
         :param makupDF:
         :return:
         """
-        self.log.warning('本地没有 {} 的数据, 直接补充'.format(symbol))
+        self.log.warning('{} 没有 {} 的数据, 直接补充'.format(self.type, symbol))
         df = makupDF.copy()
         del df['_id']
         self.collection.insert_many(df.to_dict('records'))
