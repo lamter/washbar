@@ -55,13 +55,14 @@ class DRData(object):
 
         self.log.info('加载了 {} 条数据'.format(df.shape[0]))
 
-        group = df.groupby('symbol').size()
-        for symbol in group.index:
-            # {symbol: DataFrame()}
-            d = df[df.symbol == symbol].sort_values('datetime')
-            self.originData[symbol] = d
+        if df.shape[0] > 0:
+            group = df.groupby('symbol').size()
+            for symbol in group.index:
+                # {symbol: DataFrame()}
+                d = df[df.symbol == symbol].sort_values('datetime')
+                self.originData[symbol] = d
 
-        self.log.info('加载了 {} 个合约'.format(group.shape[0]))
+            self.log.info('加载了 {} 个合约'.format(group.shape[0]))
 
     def clearBar(self):
         """

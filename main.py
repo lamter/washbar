@@ -25,6 +25,7 @@ try:
 except:
     e = traceback.format_exc()
     print(e)
+    e.replace('\n', '\n\n')
     import requests
     import time
 
