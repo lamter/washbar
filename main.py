@@ -11,7 +11,7 @@ if __debug__:
     loggingConfigFile = 'tmp/logconfig.json'
 
 with open(serverChanFile, 'r') as f:
-    serverChanUrls = json.load(f)['serverChanUrl']
+    serverChanUrls = json.load(f)['serverChanSlaveUrls']
 
 with open(settingFile, 'r') as f:
     kwargs = json.load(f)
