@@ -11,7 +11,7 @@ if __debug__:
     loggingConfigFile = 'tmp/logconfig.json'
 
 with open(serverChanFile, 'r') as f:
-    url = json.load(f)['serverChanUrl']
+    serverChanUrls = json.load(f)['serverChanUrl']
 
 with open(settingFile, 'r') as f:
     kwargs = json.load(f)
@@ -27,12 +27,14 @@ except:
     print(e)
     import requests
     import time
-    serverChanUrl = requests.get(url).text
-    text = 'washbar - {} - 数据清洗异常'.format(kwargs['mongoConf']['mongoLocal']['host'])
-    url = "{}{text}&desp={desp}".format(serverChanUrl, text=text, desp=e)
-    while True:
-        r = requests.get(url)
-        if r.status_code == 200:
-            break
-        else:
-            time.sleep(60)
+
+    for url in serverChanUrls.values():
+        serverChanUrl = requests.get(url).text
+        text = 'washbar - {} - 数据清洗异常'.format(kwargs['mongoConf']['mongoLocal']['host'])
+        url = serverChanUrl.format(serverChanUrl, text=text, desp=e)
+        while True:
+            r = requests.get(url)
+            if r.status_code == 200:
+                break
+            else:
+                time.sleep(60)
