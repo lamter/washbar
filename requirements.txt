@@ -1,4 +1,5 @@
-pymong
+requests
+pymongo
 log4mongo
 pandas
 tradingtime
