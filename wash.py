@@ -10,6 +10,7 @@ import pymongo
 from pymongo.errors import ServerSelectionTimeoutError
 import tradingtime as tt
 import pandas as pd
+from slavem import Reporter
 
 from drdata import DRData
 
@@ -21,9 +22,12 @@ class Washer(object):
 
     LOCAL_TIMEZONE = pytz.timezone('Asia/Shanghai')
 
-    def __init__(self, mongoConf, loggingConfig=None):
+    def __init__(self, mongoConf, slavemConf, loggingConfig=None):
         self.mongoConf = mongoConf  # [{conf}, {conf}]
         self.mongoCollections = []  # 是 collections, 不是 client, db
+
+        # slavem 汇报
+        self.slavemReport = Reporter(**slavemConf)
 
         self.initLog(loggingConfig)
 
@@ -81,6 +85,9 @@ class Washer(object):
         """
         self.log.info('isTradingDay: {}'.format(self.isTradingDay))
         self.log.info('清洗 {} 的数据'.format(self.tradingDay.date()))
+
+        # 汇报
+        self.slavemReport.lanuchReport()
 
         # 清除多余的 bar
         self.loadOriginData()
