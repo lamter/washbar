@@ -89,12 +89,20 @@ class Washer(object):
         # 汇报
         self.slavemReport.lanuchReport()
 
+        # 启动循环
+        self.drDataLocal.start()
+        self.drDataRemote.start()
+
         # 清除多余的 bar
         self.loadOriginData()
         self.clearBar()
 
         # 多个 bar 之间的数据
         self.aggregatedAll()
+
+        # 启动循环
+        self.drDataLocal.stop()
+        self.drDataRemote.stop()
 
     def loadOriginData(self):
         """
@@ -141,61 +149,81 @@ class Washer(object):
         # assert isinstance(localData, pd.DataFrame)
         # assert isinstance(remoteData, pd.DataFrame)
 
-        # 整个合约数据丢失
+        # # 整个合约数据丢失
+        isNeedAggregate = True
         if localData is not None and remoteData is not None:
             # 两者都有数据
-            pass
+            df = localData.append(remoteData)
+            isNeedAggregate = True
         elif localData is None:
             # 本地完全没有 这个合约的数据
-            self.drDataLocal.makeupBar(symbol, remoteData)
-            return
+            # self.drDataLocal.makeupBar(symbol, remoteData)
+            df = remoteData.copy()
+            isNeedAggregate = False
         elif remoteData is None:
-            self.drDataRemote.makeupBar(symbol, localData)
-            return
+            # self.drDataRemote.makeupBar(symbol, localData)
+            # return
+            df = localData.copy()
+            isNeedAggregate = False
         else:
             # 两个都是错误的
             self.log.critical('local 和 remote 都没有 symbol {} 的数据'.format(symbol))
             return
 
         # 衔接两地数据
-        df = localData.append(remoteData)
+
         assert isinstance(df, pd.DataFrame)
-        df = df.set_index('datetime').sort_index()
+        df = df.set_index('datetime', drop=False).sort_index()
 
-        # 聚合
-        r = df.resample('1T', closed='left', label='left')
-        close = r.close.last()
-        date = r.date.last()
-        high = r.high.max()
-        low = r.low.min()
-        lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
-        _open = r.open.first()
-        openInterest = r.openInterest.max()
-        symbol = df['symbol'][0]  # r.symbol.
-        time = r.time.last()
-        tradingDay = df['tradingDay'][0]
-        upperLimit = df['upperLimit'][0]
-        volume = r.volume.max()
+        if isNeedAggregate:
+            # 聚合
+            r = df.resample('1T', closed='left', label='left')
+            close = r.close.last()
+            date = r.date.last()
+            high = r.high.max()
+            low = r.low.min()
+            lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
+            _open = r.open.first()
+            openInterest = r.openInterest.max()
+            symbol = df['symbol'][0]  # r.symbol.
+            time = r.time.last()
+            tradingDay = df['tradingDay'][0]
+            upperLimit = df['upperLimit'][0]
+            volume = r.volume.max()
 
-        # 构建新的完整的数据
-        ndf = pd.DataFrame({
-            'close': close,
-            'date': date,
-            'high': high,
-            'low': low,
-            'lowerLimit': lowerLimit,
-            'open': _open,
-            'openInterest': openInterest,
-            'symbol': symbol,
-            'time': time,
-            'tradingDay': tradingDay,
-            'upperLimit': upperLimit,
-            'volume': volume,
-        }).dropna(how='any')
-        ndf.openInterest = ndf.openInterest.astype('int')
-        ndf.volume = ndf.volume.astype('int')
-        ndf['datetime'] = ndf.index
+            # 构建新的完整的数据
+            ndf = pd.DataFrame({
+                'close': close,
+                'date': date,
+                'high': high,
+                'low': low,
+                'lowerLimit': lowerLimit,
+                'open': _open,
+                'openInterest': openInterest,
+                'symbol': symbol,
+                'time': time,
+                'tradingDay': tradingDay,
+                'upperLimit': upperLimit,
+                'volume': volume,
+            }).dropna(how='any')
+            ndf.openInterest = ndf.openInterest.astype('int')
+            ndf.volume = ndf.volume.astype('int')
+            ndf['datetime'] = ndf.index
 
-        # 对比并更新数据
-        self.drDataLocal.aggreate(ndf, localData)
-        self.drDataRemote.aggreate(ndf, remoteData)
+        else:
+            ndf = df.copy()
+
+        # 将 volume 的总值，改为增值
+        volumeSeries = ndf.volume.diff()
+        if volumeSeries[volumeSeries < 0].shape[0] == 0:
+            # 没有小于0的，说明这个 volume 还没处理过，需要替换
+            volumeSeries[0] = ndf.volume[0]
+            volumeSeries.astype('int')
+            ndf.volume = volumeSeries
+
+        # 将新数据保存
+        self.drDataLocal.updateData(ndf)
+        self.drDataRemote.updateData(ndf)
+
+        # self.drDataLocal.aggreate(ndf, localData)
+        # self.drDataRemote.aggreate(ndf, remoteData)

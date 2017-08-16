@@ -4,6 +4,8 @@ import pymongo
 import logging
 from bson.codec_options import CodecOptions
 import pytz
+from threading import Thread
+from queue import Queue, Empty, Full
 
 from pymongo import DESCENDING
 import pandas as pd
@@ -31,12 +33,17 @@ class DRData(object):
         self.log.info('建立 mongo 链接 {host}.{dbn}.{collection}'.format(**mongoConf))
         db = pymongo.MongoClient(mongoConf['host'], mongoConf['port'])[mongoConf['dbn']]
         db.authenticate(mongoConf['username'], mongoConf['password'])
+        db.client.server_info()
         c = db[mongoConf['collection']].with_options(
             codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
         self.collection = c
 
         # 原始数据
         self.originData = {}  # {symbol: DataFrame()}
+
+        self._active = False
+        self.queue = Queue(10)
+        self._run = Thread(target=self.__run, name="{} 存库".format(self.type))
 
     @property
     def isLocal(self):
@@ -77,33 +84,33 @@ class DRData(object):
             # 去重后的数据
             dunplicatedSeries = df.duplicated(['symbol', 'volume'])
 
-            _ids = df['_id'][dunplicatedSeries]
-
-            # if self.isLocal:
-            # 对于本地的数据，删除当天所有的数据，重新写入
-            for _id in _ids:
-                sql = {
-                    '_id': _id,
-                    'tradingDay': self.mainEngine.tradingDay
-                }
-                self.collection.delete_one(sql)
-                count += 1
+            # # if self.isLocal:
+            # 不再逐个删除数据
+            # _ids = df['_id'][dunplicatedSeries]
+            # # 对于本地的数据，删除当天所有的数据，重新写入
+            # for _id in _ids:
+            #     sql = {
+            #         '_id': _id,
+            #         'tradingDay': self.mainEngine.tradingDay
+            #     }
+            #     self.collection.delete_one(sql)
+            #     count += 1
 
             # 更新数据
             self.originData[symbol] = odf[dunplicatedSeries == False]
 
         self.log.info('共删除 {} 条数据'.format(count))
 
-    def makeupBar(self, symbol, makupDF):
-        """
-
-        :param makupDF:
-        :return:
-        """
-        self.log.warning('{} 没有 {} 的数据, 直接补充'.format(self.type, symbol))
-        df = makupDF.copy()
-        del df['_id']
-        self.collection.insert_many(df.to_dict('records'))
+    # def makeupBar(self, symbol, makupDF):
+    #     """
+    #
+    #     :param makupDF:
+    #     :return:
+    #     """
+    #     self.log.warning('{} 没有 {} 的数据, 直接补充'.format(self.type, symbol))
+    #     df = makupDF.copy()
+    #     del df['_id']
+    #     self.collection.insert_many(df.to_dict('records'))
 
     def aggreate(self, ndf, localData):
 
@@ -155,3 +162,59 @@ class DRData(object):
                     'tradingDay': d.pop('tradingDay')
                 }
                 self.collection.find_one_and_update(sql, {'$set': d}, upsert=True)
+
+    def updateData(self, df):
+        """
+        更新数据源中的数据
+        :return:
+        """
+        tradingDay = df.tradingDay[0]
+        symbol = df.symbol[0]
+
+        # 先删除这个 tradingDay 中的数据
+        data = (
+            self.collection.delete_many,
+            {
+                'filter': {'tradingDay': tradingDay, 'symbol': symbol}
+            }
+        )
+        self.queue.put(data, timeout=10)
+
+        # 重新将数据填充
+        data = (
+            self.collection.insert_many,
+            {
+                'documents': df.to_dict('records')
+            }
+        )
+        self.queue.put(data, timeout=10)
+
+    def __run(self):
+        """
+        :return:
+        """
+        while self._active:
+            while True:
+                try:
+                    excute, kwargs = self.queue.get(timeout=1)
+                except Empty:
+                    break
+                excute(**kwargs)
+
+    def start(self):
+        """
+
+        :return:
+        """
+        self._active = True
+        self._run.start()
+
+    def stop(self):
+        """
+
+        :return:
+        """
+        self._active = False
+
+        if self._run.isAlive():
+            self._run.join()

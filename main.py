@@ -25,10 +25,13 @@ try:
 except:
     e = traceback.format_exc()
     print(e)
+
+    if __debug__:
+        exit()
+
     e.replace('\n', '\n\n')
     import requests
     import time
-
     for url in serverChanUrls.values():
         serverChanUrl = requests.get(url).text
         text = 'washbar - {} - 数据清洗异常'.format(kwargs['mongoConf']['mongoLocal']['host'])
