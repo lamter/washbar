@@ -104,6 +104,8 @@ class Washer(object):
         self.drDataLocal.stop()
         self.drDataRemote.stop()
 
+        self.log.info('清洗结束')
+
     def loadOriginData(self):
         """
         从数据库加载数据
