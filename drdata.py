@@ -95,7 +95,7 @@ class DRData(object):
             # 更新数据
             self.originData[symbol] = odf[dunplicatedSeries == False]
 
-        self.log.info('共删除 {} 条数据'.format(count))
+        # self.log.info('共删除 {} 条数据'.format(count))
 
     # def makeupBar(self, symbol, makupDF):
     #     """
