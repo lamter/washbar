@@ -1,13 +1,9 @@
-import pytz
-import json
 import pymongo
 import logging
 from bson.codec_options import CodecOptions
-import pytz
 from threading import Thread
-from queue import Queue, Empty, Full
+from queue import Queue, Empty
 
-from pymongo import DESCENDING
 import pandas as pd
 
 
