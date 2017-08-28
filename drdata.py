@@ -38,11 +38,12 @@ class DRData(object):
         self.bar_1minCollection = db[mongoConf['collection']].with_options(
             codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
 
-        # 初始化日线collection
-        self._initBar1DayCollection()
         # 日线的 collection
         self.bar_1dayCollection = db[mongoConf['dayCollection']].with_options(
             codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
+
+        # 初始化日线collection
+        self.initBarCollection()
 
         # 原始数据
         self.originData = {}  # {symbol: DataFrame()}
@@ -200,46 +201,40 @@ class DRData(object):
         if self._run.isAlive():
             self._run.join()
 
-    def _initBar1DayCollection(self):
+    def initBarCollection(self):
         """
 
         :return:
         """
-        # collection 是否存在
-        colName = self.mongoConf['dayCollection']
-        if colName not in self.db.collection_names():
-            # 不存在，创建数据库
-            bar_1day = self.db.create_collection(colName)
-        else:
-            bar_1day = self.db[colName]
-
+        # 需要建立的索引
         indexSymbol = IndexModel([('symbol', ASCENDING)], name='symbol', background=True)
         indexTradingDay = IndexModel([('tradingDay', DESCENDING)], name='tradingDay', background=True)
+        indexes = [indexSymbol, indexTradingDay]
+
+        # 初始化日线的 collection
+        self._initBarCollection(self.bar_1dayCollection, indexes)
+
+    def _initBarCollection(self, barCol, indexes):
+        """
+        初始化分钟线的 collection
+        :return:
+        """
 
         # 检查索引
         try:
-            indexInformation = bar_1day.index_information()
-            if 'tradingDay' not in indexInformation:
-                bar_1day.create_indexes(
-                    [
-                        indexTradingDay,
-                    ],
-                )
-            if 'symbol' in indexInformation:
-                bar_1day.create_indexes(
-                    [
-                        indexSymbol,
-                    ],
-                )
-
+            indexInformation = barCol.index_information()
+            for index in indexes:
+                if index.name not in indexInformation:
+                    barCol.create_indexes(
+                        [
+                            index,
+                        ],
+                    )
         except OperationFailure:
             # 有索引
-            bar_1day.create_indexes(
-                [
-                    indexSymbol,
-                    indexTradingDay,
-                ],
-            )
+            barCol.create_indexes(indexes)
+
+
 
     def updateDayData(self, df):
         """
