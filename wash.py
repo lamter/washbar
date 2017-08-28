@@ -9,6 +9,7 @@ from itertools import chain
 import pymongo
 from pymongo.errors import ServerSelectionTimeoutError
 import tradingtime as tt
+import numpy as np
 import pandas as pd
 from slavem import Reporter
 
@@ -79,6 +80,13 @@ class Washer(object):
             self.log.warning(u'未配置 loggingconfig')
 
     def start(self):
+        try:
+            self.run()
+        except:
+            self.stop()
+            raise
+
+    def run(self):
         """
 
         :return:
@@ -97,14 +105,17 @@ class Washer(object):
         self.loadOriginData()
         self.clearBar()
 
-        # 多个 bar 之间的数据
+        # 重新聚合所有合约的 1min bar 数据，并存库
         self.aggregatedAll()
 
-        # 启动循环
-        self.drDataLocal.stop()
-        self.drDataRemote.stop()
+        self.stop()
 
         self.log.info('清洗结束')
+
+    def stop(self):
+        # 结束存库循环
+        self.drDataLocal.stop()
+        self.drDataRemote.stop()
 
     def loadOriginData(self):
         """
@@ -117,6 +128,7 @@ class Washer(object):
         self.drDataLocal.loadOriginData()
         if t.isAlive():
             t.join()
+
 
     def clearBar(self):
         """
@@ -148,9 +160,6 @@ class Washer(object):
         localData = self.drDataLocal.originData.get(symbol)
         remoteData = self.drDataRemote.originData.get(symbol)
 
-        # assert isinstance(localData, pd.DataFrame)
-        # assert isinstance(remoteData, pd.DataFrame)
-
         # # 整个合约数据丢失
         isNeedAggregate = True
         if localData is not None and remoteData is not None:
@@ -169,7 +178,7 @@ class Washer(object):
             isNeedAggregate = False
         else:
             # 两个都是错误的
-            self.log.critical('local 和 remote 都没有 symbol {} 的数据'.format(symbol))
+            self.log.warning('local 和 remote 都没有 symbol {} 的数据'.format(symbol))
             return
 
         # 衔接两地数据
@@ -179,39 +188,7 @@ class Washer(object):
 
         if isNeedAggregate:
             # 聚合
-            r = df.resample('1T', closed='left', label='left')
-            close = r.close.last()
-            date = r.date.last()
-            high = r.high.max()
-            low = r.low.min()
-            lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
-            _open = r.open.first()
-            openInterest = r.openInterest.max()
-            symbol = df['symbol'][0]  # r.symbol.
-            time = r.time.last()
-            tradingDay = df['tradingDay'][0]
-            upperLimit = df['upperLimit'][0]
-            volume = r.volume.max()
-
-            # 构建新的完整的数据
-            ndf = pd.DataFrame({
-                'close': close,
-                'date': date,
-                'high': high,
-                'low': low,
-                'lowerLimit': lowerLimit,
-                'open': _open,
-                'openInterest': openInterest,
-                'symbol': symbol,
-                'time': time,
-                'tradingDay': tradingDay,
-                'upperLimit': upperLimit,
-                'volume': volume,
-            }).dropna(how='any')
-            ndf.openInterest = ndf.openInterest.astype('int')
-            ndf.volume = ndf.volume.astype('int')
-            ndf['datetime'] = ndf.index
-
+            ndf = self.resample1MinBar(df)
         else:
             ndf = df.copy()
 
@@ -225,7 +202,91 @@ class Washer(object):
 
         # 将新数据保存
         self.drDataLocal.updateData(ndf)
-        self.drDataRemote.updateData(ndf)
+        if not __debug__:
 
-        # self.drDataLocal.aggreate(ndf, localData)
-        # self.drDataRemote.aggreate(ndf, remoteData)
+            self.drDataRemote.updateData(ndf)
+        # 保存日线数据
+        # ndf = ndf.set_index('tradingDay')
+        # dayndf = self.resample1DayBar(ndf)
+        # self.drDataLocal.updateDayData(dayndf)
+        # if not __debug__:
+        #     self.drDataRemote.updateDayData(dayndf)
+
+    @staticmethod
+    def resample1MinBar(df):
+        r = df.resample('1T', closed='left', label='left')
+        close = r.close.last()
+        date = r.date.last()
+        high = r.high.max()
+        low = r.low.min()
+        lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
+        _open = r.open.first()
+        openInterest = r.openInterest.max()
+        symbol = df['symbol'][0]  # r.symbol.
+        time = r.time.last()
+        tradingDay = df['tradingDay'][0]
+        upperLimit = df['upperLimit'][0]
+        volume = r.volume.max()
+
+        # 构建新的完整的数据
+        ndf = pd.DataFrame({
+            'close': close,
+            'date': date,
+            'high': high,
+            'low': low,
+            'lowerLimit': lowerLimit,
+            'open': _open,
+            'openInterest': openInterest,
+            'symbol': symbol,
+            'time': time,
+            'tradingDay': tradingDay,
+            'upperLimit': upperLimit,
+            'volume': volume,
+        }).dropna(how='any')
+        ndf.openInterest = ndf.openInterest.astype('int')
+        ndf.volume = ndf.volume.astype('int')
+        ndf['datetime'] = ndf.index
+        return ndf
+
+    @staticmethod
+    def resample1DayBar(df):
+        r = df.resample('1T', closed='left', label='left')
+        close = r.close.last()
+        #     date = r.date.last()
+        date = df.date[-1]
+        high = r.high.max()
+        low = r.low.min()
+        try:
+            lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
+            upperLimit = df['upperLimit'][0]
+        except KeyError:
+            upperLimit = lowerLimit = np.nan
+        _open = r.open.first()
+        openInterest = r.openInterest.last()
+        symbol = df['symbol'][0]  # r.symbol.
+        time = r.time.last()
+        volume = r.volume.sum()
+
+        # 构建新的完整的数据
+        ndf = pd.DataFrame({
+            'close': close,
+            'date': date,
+            'high': high,
+            'low': low,
+            'lowerLimit': lowerLimit,
+            'open': _open,
+            'openInterest': openInterest,
+            'symbol': symbol,
+            'time': time,
+            'upperLimit': upperLimit,
+            'volume': volume,
+        })
+
+        # 抛弃纵轴全为null的数据
+        ndf.dropna(axis=1, how='all')
+        ndf.dropna(how='any')
+        ndf.openInterest = ndf.openInterest.astype('int')
+        ndf.volume = ndf.volume.astype('int')
+        ndf['datetime'] = ndf.index
+        ndf['tradingDay'] = ndf.index
+        return ndf

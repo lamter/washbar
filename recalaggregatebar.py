@@ -1,8 +1,8 @@
 import datetime
 import json
 import traceback
+import arrow
 
-from wash import Washer
 from aggregatebar import AggregateBar
 
 settingFile = 'conf/kwarg.json'
@@ -23,13 +23,18 @@ with open(loggingConfigFile, 'r') as f:
     loggingConfig = json.load(f)
 
 try:
-    # 清洗数据
-    w = Washer(loggingConfig=loggingConfig, **kwargs)
-    w.start()
-
     # 聚合日线数据
-    a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
-    a.start()
+    # 回溯聚合日线,从最新的一天开始
+    startDate = arrow.now().datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+    # endDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
+    endDate = arrow.get('2017-07-01 00:00:00+08:00').datetime
+    currentTradingDay = startDate
+    while currentTradingDay >= endDate:
+        a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
+        a.tradingDay = currentTradingDay
+        a.start()
+        currentTradingDay -= datetime.timedelta(days=1)
+
 except:
     e = traceback.format_exc()
     print(e)
@@ -40,6 +45,7 @@ except:
     e.replace('\n', '\n\n')
     import requests
     import time
+
     for url in serverChanUrls.values():
         serverChanUrl = requests.get(url).text
         text = 'washbar - {} - 数据清洗异常'.format(kwargs['mongoConf']['mongoLocal']['host'])

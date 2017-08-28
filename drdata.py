@@ -1,4 +1,6 @@
 import pymongo
+from pymongo.errors import OperationFailure
+from pymongo import IndexModel, ASCENDING, DESCENDING
 import logging
 from bson.codec_options import CodecOptions
 from threading import Thread
@@ -30,9 +32,17 @@ class DRData(object):
         db = pymongo.MongoClient(mongoConf['host'], mongoConf['port'])[mongoConf['dbn']]
         db.authenticate(mongoConf['username'], mongoConf['password'])
         db.client.server_info()
-        c = db[mongoConf['collection']].with_options(
+        self.db = db
+
+        # 1min bar 的 collection
+        self.bar_1minCollection = db[mongoConf['collection']].with_options(
             codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
-        self.collection = c
+
+        # 初始化日线collection
+        self._initBar1DayCollection()
+        # 日线的 collection
+        self.bar_1dayCollection = db[mongoConf['dayCollection']].with_options(
+            codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
 
         # 原始数据
         self.originData = {}  # {symbol: DataFrame()}
@@ -53,7 +63,7 @@ class DRData(object):
         self.originData.clear()
         sql = {'tradingDay': self.mainEngine.tradingDay}
 
-        cursor = self.collection.find(sql).hint('tradingDay')
+        cursor = self.bar_1minCollection.find(sql).hint('tradingDay')
         df = pd.DataFrame([i for i in cursor])
 
         self.log.info('加载了 {} 条数据'.format(df.shape[0]))
@@ -72,41 +82,16 @@ class DRData(object):
         清除多余的 bar ，如果多个 bar 的 volume 没有递增，说明这些 bar 没有新的成交。只保留第一个 bar
         :return:
         """
-
-        count = 0
         for symbol, odf in self.originData.items():
-            df = odf[['_id', 'symbol', 'volume']].copy()
-            # df = pd.DataFrame(od, columns=['_id', 'datetime', 'symbol', 'volume']).sort('datetime')
-            # 去重后的数据
-            dunplicatedSeries = df.duplicated(['symbol', 'volume'])
+            df = odf[['datetime', 'symbol', 'volume']].copy()
 
-            # # if self.isLocal:
-            # 不再逐个删除数据
-            # _ids = df['_id'][dunplicatedSeries]
-            # # 对于本地的数据，删除当天所有的数据，重新写入
-            # for _id in _ids:
-            #     sql = {
-            #         '_id': _id,
-            #         'tradingDay': self.mainEngine.tradingDay
-            #     }
-            #     self.collection.delete_one(sql)
-            #     count += 1
+            # 去重后的数据
+            dunplicatedSeries = df.duplicated(['datetime', 'symbol', 'volume'])
 
             # 更新数据
-            self.originData[symbol] = odf[dunplicatedSeries == False]
+            ndf = odf[dunplicatedSeries == False]
 
-        # self.log.info('共删除 {} 条数据'.format(count))
-
-    # def makeupBar(self, symbol, makupDF):
-    #     """
-    #
-    #     :param makupDF:
-    #     :return:
-    #     """
-    #     self.log.warning('{} 没有 {} 的数据, 直接补充'.format(self.type, symbol))
-    #     df = makupDF.copy()
-    #     del df['_id']
-    #     self.collection.insert_many(df.to_dict('records'))
+            self.originData[symbol] = ndf
 
     def aggreate(self, ndf, localData):
 
@@ -140,7 +125,7 @@ class DRData(object):
         # 批量保存的
         if insertManyDF.shape[0] > 0:
             del insertManyDF['_id']
-            r = self.collection.insert_many(insertManyDF.to_dict('records'))
+            r = self.bar_1minCollection.insert_many(insertManyDF.to_dict('records'))
 
         # 逐个更新的
         updateOneDF = upsertDF[upsertDF._id.isnull().apply(lambda x: not x)]
@@ -157,7 +142,7 @@ class DRData(object):
                     '_id': d.pop('_id'),
                     'tradingDay': d.pop('tradingDay')
                 }
-                self.collection.find_one_and_update(sql, {'$set': d}, upsert=True)
+                self.bar_1minCollection.find_one_and_update(sql, {'$set': d}, upsert=True)
 
     def updateData(self, df):
         """
@@ -169,7 +154,7 @@ class DRData(object):
 
         # 先删除这个 tradingDay 中的数据
         data = (
-            self.collection.delete_many,
+            self.bar_1minCollection.delete_many,
             {
                 'filter': {'tradingDay': tradingDay, 'symbol': symbol}
             }
@@ -178,7 +163,7 @@ class DRData(object):
 
         # 重新将数据填充
         data = (
-            self.collection.insert_many,
+            self.bar_1minCollection.insert_many,
             {
                 'documents': df.to_dict('records')
             }
@@ -214,3 +199,70 @@ class DRData(object):
 
         if self._run.isAlive():
             self._run.join()
+
+    def _initBar1DayCollection(self):
+        """
+
+        :return:
+        """
+        # collection 是否存在
+        colName = self.mongoConf['dayCollection']
+        if colName not in self.db.collection_names():
+            # 不存在，创建数据库
+            bar_1day = self.db.create_collection(colName)
+        else:
+            bar_1day = self.db[colName]
+
+        indexSymbol = IndexModel([('symbol', ASCENDING)], name='symbol', background=True)
+        indexTradingDay = IndexModel([('tradingDay', DESCENDING)], name='tradingDay', background=True)
+
+        # 检查索引
+        try:
+            indexInformation = bar_1day.index_information()
+            if 'tradingDay' not in indexInformation:
+                bar_1day.create_indexes(
+                    [
+                        indexTradingDay,
+                    ],
+                )
+            if 'symbol' in indexInformation:
+                bar_1day.create_indexes(
+                    [
+                        indexSymbol,
+                    ],
+                )
+
+        except OperationFailure:
+            # 有索引
+            bar_1day.create_indexes(
+                [
+                    indexSymbol,
+                    indexTradingDay,
+                ],
+            )
+
+    def updateDayData(self, df):
+        """
+        更新数据源中的日线数据
+        :return:
+        """
+        tradingDay = df.tradingDay[0]
+        symbol = df.symbol[0]
+
+        # 先删除这个 tradingDay 中的数据
+        data = (
+            self.bar_1dayCollection.delete_many,
+            {
+                'filter': {'tradingDay': tradingDay, 'symbol': symbol}
+            }
+        )
+        self.queue.put(data, timeout=10)
+
+        # 重新将数据填充
+        data = (
+            self.bar_1dayCollection.insert_many,
+            {
+                'documents': df.to_dict('records')
+            }
+        )
+        self.queue.put(data, timeout=10)
