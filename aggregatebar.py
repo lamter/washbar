@@ -20,7 +20,7 @@ class AggregateBar(Washer):
         :return:
         """
         self.log.info('isTradingDay: {}'.format(self.isTradingDay))
-        self.log.info('清洗 {} 的数据'.format(self.tradingDay.date()))
+        self.log.info('聚合 {} 的数据'.format(self.tradingDay.date()))
 
         # 汇报
         self.slavemReport.lanuchReport()
@@ -31,9 +31,10 @@ class AggregateBar(Washer):
 
         # 加载数据 ba
         if __debug__:
+            self.log.debug('测试模式，同时加载两地的数据')
             self.loadOriginData()
-        # 从本地加载数据即可，此时已经完成了两地数据互补，两地数据已经一致了
         else:
+            # 从本地加载数据即可，此时已经完成了两地数据互补，两地数据已经一致了
             self.drDataLocal.loadOriginData()
 
         # 聚合5分钟 bar
