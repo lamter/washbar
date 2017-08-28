@@ -26,8 +26,7 @@ try:
     # 聚合日线数据
     # 回溯聚合日线,从最新的一天开始
     startDate = arrow.now().datetime.replace(hour=0, minute=0, second=0, microsecond=0)
-    # endDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
-    endDate = arrow.get('2017-07-01 00:00:00+08:00').datetime
+    endDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
     currentTradingDay = startDate
     while currentTradingDay >= endDate:
         a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
