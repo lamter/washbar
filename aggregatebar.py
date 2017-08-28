@@ -23,7 +23,7 @@ class AggregateBar(Washer):
         self.log.info('聚合 {} 的数据'.format(self.tradingDay.date()))
 
         # 汇报
-        self.slavemReport.lanuchReport()
+        # self.slavemReport.lanuchReport()
 
         # 启动循环
         self.drDataLocal.start()
