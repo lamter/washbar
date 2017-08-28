@@ -245,19 +245,7 @@ class DRData(object):
         symbol = df.symbol[0]
 
         # 先删除这个 tradingDay 中的数据
-        data = (
-            self.bar_1dayCollection.delete_many,
-            {
-                'filter': {'tradingDay': tradingDay, 'symbol': symbol}
-            }
-        )
-        self.queue.put(data, timeout=10)
+        self.bar_1dayCollection.delete_many({'tradingDay': tradingDay, 'symbol': symbol})
 
         # 重新将数据填充
-        data = (
-            self.bar_1dayCollection.insert_many,
-            {
-                'documents': df.to_dict('records')
-            }
-        )
-        self.queue.put(data, timeout=10)
+        self.bar_1dayCollection.insert_many(df.to_dict('records'))

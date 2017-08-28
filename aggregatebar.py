@@ -26,8 +26,8 @@ class AggregateBar(Washer):
         # self.slavemReport.lanuchReport()
 
         # 启动循环
-        self.drDataLocal.start()
-        self.drDataRemote.start()
+        # self.drDataLocal.start()
+        # self.drDataRemote.start()
 
         # 加载数据 ba
         if __debug__:
@@ -55,7 +55,8 @@ class AggregateBar(Washer):
         聚合日线数据
         :return:
         """
-        symbolsChain = chain(self.drDataLocal.originData.keys(), self.drDataRemote.originData.keys())
+        symbolsChain = list(chain(self.drDataLocal.originData.keys(), self.drDataRemote.originData.keys()))
+        self.log.info('共 {} 个合约'.format(len(symbolsChain),))
         for symbol in symbolsChain:
             self.aggregatedDayBar(symbol)
 
