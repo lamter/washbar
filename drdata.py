@@ -223,11 +223,11 @@ class DRData(object):
         # 检查索引
         try:
             indexInformation = barCol.index_information()
-            for index in indexes:
-                if index.name not in indexInformation:
+            for indexModel in indexes:
+                if indexModel.document['name'] not in indexInformation:
                     barCol.create_indexes(
                         [
-                            index,
+                            indexModel,
                         ],
                     )
         except OperationFailure:
