@@ -30,6 +30,7 @@ try:
     # 聚合日线数据
     a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
     a.start()
+
 except:
     e = traceback.format_exc()
     print(e)

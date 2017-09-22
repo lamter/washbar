@@ -1,3 +1,5 @@
+import datetime
+
 import pymongo
 from pymongo.errors import OperationFailure
 from pymongo import IndexModel, ASCENDING, DESCENDING
@@ -5,8 +7,11 @@ import logging
 from bson.codec_options import CodecOptions
 from threading import Thread
 from queue import Queue, Empty
+import arrow
 
 import pandas as pd
+
+from slaveobject import Contract
 
 
 class DRData(object):
@@ -42,11 +47,20 @@ class DRData(object):
         self.bar_1dayCollection = db[mongoConf['dayCollection']].with_options(
             codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
 
+        # 1min bar 的 collection
+        self.contractCollection = db[mongoConf['contractCollection']].with_options(
+            codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
+
         # 初始化日线collection
         self.initBarCollection()
 
+        # 初始化合约collection
+        self.initContractCollection()
+
         # 原始数据
         self.originData = {}  # {symbol: DataFrame()}
+        self.originDailyData = None  # DataFrame()
+        self.contractData = {}  # {symbol: Contract()}
 
         self._active = False
         self.queue = Queue(10)
@@ -77,6 +91,41 @@ class DRData(object):
                 self.originData[symbol] = d
 
             self.log.info('加载了 {} 个合约'.format(group.shape[0]))
+
+    def loadOriginDailyData(self, startDate):
+        """
+        从数据库加载数据
+        :return:
+        """
+        self.originData.clear()
+        sql = {'tradingDay': {
+            '$gte': startDate,
+        }}
+
+        cursor = self.bar_1dayCollection.find(sql, {'_id': 0}).hint('tradingDay')
+
+        df = pd.DataFrame([i for i in cursor])
+
+        self.log.info('加载了 {} 日线条数据'.format(df.shape[0]))
+        self.originDailyData = df
+
+        if df.shape[0] > 0:
+            group = df.groupby('symbol').size()
+            self.log.info('加载了 {} 个合约'.format(group.shape[0]))
+
+    def loadContractData(self):
+        """
+        加载合约详情数据
+        :param startDate:
+        :return:
+        """
+        sql = {
+
+        }
+        cursor = self.contractCollection.find(sql, {'_id': 0})
+        for od in cursor:
+            c = Contract(od)
+            self.contractData[c.symbol] = c
 
     def clearBar(self):
         """
@@ -212,9 +261,19 @@ class DRData(object):
         indexes = [indexSymbol, indexTradingDay]
 
         # 初始化日线的 collection
-        self._initBarCollection(self.bar_1dayCollection, indexes)
+        self._initCollectionIndex(self.bar_1dayCollection, indexes)
 
-    def _initBarCollection(self, barCol, indexes):
+    def initContractCollection(self):
+        # 需要建立的索引
+        indexSymbol = IndexModel([('symbol', ASCENDING)], name='symbol', background=True)
+        indexTradingDay = IndexModel([('tradingDay', DESCENDING)], name='tradingDay', background=True)
+        indexUnderlyingSymbol = IndexModel([('underlyingSymbol', DESCENDING)], name='underlyingSymbol', background=True)
+        indexes = [indexSymbol, indexTradingDay, indexUnderlyingSymbol]
+
+        # 初始化日线的 collection
+        self._initCollectionIndex(self.bar_1dayCollection, indexes)
+
+    def _initCollectionIndex(self, col, indexes):
         """
         初始化分钟线的 collection
         :return:
@@ -222,19 +281,17 @@ class DRData(object):
 
         # 检查索引
         try:
-            indexInformation = barCol.index_information()
+            indexInformation = col.index_information()
             for indexModel in indexes:
                 if indexModel.document['name'] not in indexInformation:
-                    barCol.create_indexes(
+                    col.create_indexes(
                         [
                             indexModel,
                         ],
                     )
         except OperationFailure:
             # 有索引
-            barCol.create_indexes(indexes)
-
-
+            col.create_indexes(indexes)
 
     def updateDayData(self, df):
         """
@@ -249,3 +306,19 @@ class DRData(object):
 
         # 重新将数据填充
         self.bar_1dayCollection.insert_many(df.to_dict('records'))
+
+    def updateContracts(self, contracts):
+        """
+        :param contracts: {'symbol': Contract()}
+        :return:
+        """
+        for c in contracts.values():
+            try:
+                assert isinstance(c, Contract)
+            except AssertionError:
+                print(c)
+            dic = c.toSave()
+            filter = {
+                'symbol': c.symbol,
+            }
+            self.contractCollection.find_one_and_update(filter, {'$set': dic}, upsert=True)
