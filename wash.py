@@ -129,6 +129,28 @@ class Washer(object):
         if t.isAlive():
             t.join()
 
+    def loadOriginDailyData(self, startDate):
+        """
+        从数据库加载数据
+        :return:
+        """
+        # t = Thread(target=self.drDataRemote.loadOriginDailyData, kwargs={'startDate': startDate})
+        # t.start()
+        self.drDataLocal.loadOriginDailyData(startDate)
+        # if t.isAlive():
+        #     t.join()
+
+    def loadContractData(self):
+        """
+        加载合约详情数据
+        :param startData:
+        :return:
+        """
+        t = Thread(target=self.drDataRemote.loadContractData)
+        t.start()
+        self.drDataLocal.loadContractData()
+        if t.isAlive():
+            t.join()
 
     def clearBar(self):
         """
@@ -203,14 +225,13 @@ class Washer(object):
         # 将新数据保存
         self.drDataLocal.updateData(ndf)
         if not __debug__:
-
             self.drDataRemote.updateData(ndf)
-        # 保存日线数据
-        # ndf = ndf.set_index('tradingDay')
-        # dayndf = self.resample1DayBar(ndf)
-        # self.drDataLocal.updateDayData(dayndf)
-        # if not __debug__:
-        #     self.drDataRemote.updateDayData(dayndf)
+            # 保存日线数据
+            # ndf = ndf.set_index('tradingDay')
+            # dayndf = self.resample1DayBar(ndf)
+            # self.drDataLocal.updateDayData(dayndf)
+            # if not __debug__:
+            #     self.drDataRemote.updateDayData(dayndf)
 
     @staticmethod
     def resample1MinBar(df):
