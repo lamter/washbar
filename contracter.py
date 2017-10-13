@@ -145,7 +145,15 @@ class Contracter(Washer):
             except KeyError:
                 # 尚未有这个合约
                 us = tt.contract2name(symbol)
-                for c in contracts.values():
+                try:
+                    contractsByUnderlying = list(self.contractByUnderlyingSymbol[us])
+                except KeyError:
+                    self.log.warning(u'找不到相同品种的合约 {}'.format(symbol))
+                    continue
+
+                # 采用最新的合约，以便热门合约导数值失真
+                contractsByUnderlying.sort(key=lambda c: c.vtSymbol, reverse=True)
+                for c in contractsByUnderlying:
                     # 寻找相同品种的合约顶替
                     if c.underlyingSymbol == us:
                         assert isinstance(c, Contract)

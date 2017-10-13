@@ -4,6 +4,7 @@ import traceback
 
 from wash import Washer
 from aggregatebar import AggregateBar
+from contracter import Contracter
 
 settingFile = 'conf/kwarg.json'
 loggingConfigFile = 'conf/logconfig.json'
@@ -30,6 +31,11 @@ try:
     # 聚合日线数据
     a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
     a.start()
+
+    # 补充合约数据
+    c = Contracter(loggingConfig=loggingConfig, **kwargs)
+    c.startTradingDay -= datetime.timedelta(days=1)
+    c.start()
 
 except:
     e = traceback.format_exc()
