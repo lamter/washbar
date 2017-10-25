@@ -81,15 +81,6 @@ class Contracter(Washer):
 
         contractList.sort(key=lambda c: (c.startDate, c.symbol))
 
-        # currentActiveContract = contractList[0]
-        # for con in contractList:
-        #     if con.activeStartDate is None:
-        #         continue
-        #     if currentActiveContract.activeStartDate is None:
-        #         currentActiveContract = con
-        #     if con.activeStartDate >= currentActiveContract.activeStartDate:
-        #         currentActiveContract = con
-
         # 获得每天的主力合约
         activContract = df.groupby('tradingDay').apply(lambda t: t[t.volume == t.volume.max()])
         activContract = activContract.sort_values('tradingDay', inplace=False)
@@ -145,7 +136,15 @@ class Contracter(Washer):
             except KeyError:
                 # 尚未有这个合约
                 us = tt.contract2name(symbol)
-                for c in contracts.values():
+                try:
+                    contractsByUnderlying = list(self.contractByUnderlyingSymbol[us])
+                except KeyError:
+                    self.log.warning(u'找不到相同品种的合约 {}'.format(symbol))
+                    continue
+
+                # 采用最新的合约，以便热门合约导数值失真
+                contractsByUnderlying.sort(key=lambda c: c.vtSymbol, reverse=True)
+                for c in contractsByUnderlying:
                     # 寻找相同品种的合约顶替
                     if c.underlyingSymbol == us:
                         assert isinstance(c, Contract)
@@ -171,10 +170,10 @@ class Contracter(Washer):
                 cbus[c.underlyingSymbol] = {c}
 
     def saveContracts(self):
-
         self.drDataLocal.updateContracts(self.contracts)
 
-        self.drDataRemote.updateContracts(self.contracts)
+        if not __debug__:
+            self.drDataRemote.updateContracts(self.contracts)
 
 
 if __name__ == '__main__':
@@ -198,5 +197,4 @@ if __name__ == '__main__':
     startDate = None
     startDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
     c = Contracter(startDate, loggingConfig=loggingConfig, **kwargs)
-    # c.startTradingDay -= datetime.timedelta(days=1)
     c.start()
