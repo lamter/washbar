@@ -218,8 +218,8 @@ class Washer(object):
         # 计算 volume 增量 vol
         volumeSeries = ndf.volume.diff()
         volumeSeries.apply(lambda vol: np.nan if vol < 0 else vol)
+        volumeSeries.iat[0] = ndf.volume[0]
         volumeSeries = volumeSeries.fillna(method='bfill')
-        volumeSeries[0] = ndf.volume[0]
         volumeSeries.astype('int')
         ndf['vol'] = volumeSeries
         # print(ndf[['vol', 'volume']].tail())
