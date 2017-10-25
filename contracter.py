@@ -81,15 +81,6 @@ class Contracter(Washer):
 
         contractList.sort(key=lambda c: (c.startDate, c.symbol))
 
-        # currentActiveContract = contractList[0]
-        # for con in contractList:
-        #     if con.activeStartDate is None:
-        #         continue
-        #     if currentActiveContract.activeStartDate is None:
-        #         currentActiveContract = con
-        #     if con.activeStartDate >= currentActiveContract.activeStartDate:
-        #         currentActiveContract = con
-
         # 获得每天的主力合约
         activContract = df.groupby('tradingDay').apply(lambda t: t[t.volume == t.volume.max()])
         activContract = activContract.sort_values('tradingDay', inplace=False)
@@ -179,10 +170,10 @@ class Contracter(Washer):
                 cbus[c.underlyingSymbol] = {c}
 
     def saveContracts(self):
-
         self.drDataLocal.updateContracts(self.contracts)
 
-        self.drDataRemote.updateContracts(self.contracts)
+        if not __debug__:
+            self.drDataRemote.updateContracts(self.contracts)
 
 
 if __name__ == '__main__':
@@ -206,5 +197,4 @@ if __name__ == '__main__':
     startDate = None
     startDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
     c = Contracter(startDate, loggingConfig=loggingConfig, **kwargs)
-    # c.startTradingDay -= datetime.timedelta(days=1)
     c.start()
