@@ -5,6 +5,7 @@ import logging.config
 import pytz
 from threading import Thread
 from itertools import chain
+import json
 
 import pymongo
 from pymongo.errors import ServerSelectionTimeoutError
@@ -214,13 +215,14 @@ class Washer(object):
         else:
             ndf = df.copy()
 
-        # 将 volume 的总值，改为增值
+        # 计算 volume 增量 vol
         volumeSeries = ndf.volume.diff()
-        if volumeSeries[volumeSeries < 0].shape[0] == 0:
-            # 没有小于0的，说明这个 volume 还没处理过，需要替换
-            volumeSeries[0] = ndf.volume[0]
-            volumeSeries.astype('int')
-            ndf.volume = volumeSeries
+        volumeSeries.apply(lambda vol: np.nan if vol < 0 else vol)
+        volumeSeries = volumeSeries.fillna(method='bfill')
+        volumeSeries[0] = ndf.volume[0]
+        volumeSeries.astype('int')
+        ndf['vol'] = volumeSeries
+        # print(ndf[['vol', 'volume']].tail())
 
         # 将新数据保存
         self.drDataLocal.updateData(ndf)
@@ -286,7 +288,7 @@ class Washer(object):
         openInterest = r.openInterest.last()
         symbol = df['symbol'][0]  # r.symbol.
         time = r.time.last()
-        volume = r.volume.sum()
+        volume = r.volume.last()
 
         # 构建新的完整的数据
         ndf = pd.DataFrame({
@@ -311,3 +313,27 @@ class Washer(object):
         ndf['datetime'] = ndf.index
         ndf['tradingDay'] = ndf.index
         return ndf
+
+
+if __name__ == '__main__':
+    settingFile = 'conf/kwarg.json'
+    loggingConfigFile = 'conf/logconfig.json'
+    serverChanFile = 'conf/serverChan.json'
+
+    if __debug__:
+        settingFile = 'tmp/kwarg.json'
+        loggingConfigFile = 'tmp/logconfig.json'
+
+    with open(serverChanFile, 'r') as f:
+        serverChanUrls = json.load(f)['serverChanSlaveUrls']
+
+    with open(settingFile, 'r') as f:
+        kwargs = json.load(f)
+
+    with open(loggingConfigFile, 'r') as f:
+        loggingConfig = json.load(f)
+
+    w = Washer(loggingConfig=loggingConfig, **kwargs)
+    import arrow
+    w.tradingDay = arrow.get('2017-10-24 00:00:00+08:00').datetime
+    w.start()

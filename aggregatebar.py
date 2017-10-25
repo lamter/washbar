@@ -83,6 +83,7 @@ class AggregateBar(Washer):
 
         # 聚合日线
         ndf = self.resample1DayBar(df)
+
         # 更新数据
         self.drDataLocal.updateDayData(ndf)
         self.drDataRemote.updateDayData(ndf)
@@ -111,6 +112,6 @@ if __name__ == '__main__':
     a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
     import arrow
 
-    a.tradingDay = arrow.get('2017-08-24 00:00:00+08:00').datetime
+    # a.tradingDay = arrow.get('2017-08-24 00:00:00+08:00').datetime
     # print(a.tradingDay)
     a.start()
