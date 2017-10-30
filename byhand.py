@@ -2,6 +2,7 @@ import datetime
 import json
 import traceback
 
+import arrow
 import logging.config
 from wash import Washer
 from aggregatebar import AggregateBar
@@ -28,21 +29,29 @@ with open(loggingConfigFile, 'r') as f:
 logging.loaded = False
 
 try:
-    # 清洗数据
-    w = Washer(loggingConfig=loggingConfig, **kwargs)
-    w.start()
+    startDate = arrow.get('2017-08-31 00:00:00+08:00').datetime
+    endDate = arrow.get('2017-08-31 00:00:00+08:00').datetime
+    tradingDay = startDate
+    while tradingDay <= endDate:
+        # 清洗数据
+        w = Washer(loggingConfig=loggingConfig, **kwargs)
+        w.tradingDay = tradingDay
+        w.start()
 
-    # 聚合日线数据
-    a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
-    a.start()
+        # 聚合日线数据
+        a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
+        a.tradingDay = tradingDay
+        a.start()
 
-    # 更新合约的始末日期
-    h = HisContracter(loggingConfig=loggingConfig, **kwargs)
-    h.start()
+        # 更新合约的始末日期
+        h = HisContracter(loggingConfig=loggingConfig, startDate=tradingDay, **kwargs)
+        h.start()
 
-    # 生成主力合约数据
-    c = Contracter(loggingConfig=loggingConfig, **kwargs)
-    c.start()
+        # 生成主力合约数据
+        c = Contracter(loggingConfig=loggingConfig, startDate=tradingDay, **kwargs)
+        c.start()
+
+        tradingDay += datetime.timedelta(days=1)
 
 except:
     e = traceback.format_exc()
@@ -54,6 +63,7 @@ except:
     e.replace('\n', '\n\n')
     import requests
     import time
+
     for url in serverChanUrls.values():
         serverChanUrl = requests.get(url).text
         text = 'washbar - {} - 数据清洗异常'.format(kwargs['mongoConf']['mongoLocal']['host'])

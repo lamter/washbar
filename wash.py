@@ -48,19 +48,21 @@ class Washer(object):
         :return:
         """
         if loggingconf:
-            # log4mongo 的bug导致使用非admin用户时，建立会报错。
-            # 这里使用注入的方式跳过会报错的代码
-            import log4mongo.handlers
-            log4mongo.handlers._connection = pymongo.MongoClient(
-                host=loggingconf['handlers']['mongo']['host'],
-                port=loggingconf['handlers']['mongo']['port'],
-            )
+            if not logging.loaded:
+                logging.config.loaded = True
+                # log4mongo 的bug导致使用非admin用户时，建立会报错。
+                # 这里使用注入的方式跳过会报错的代码
+                import log4mongo.handlers
+                log4mongo.handlers._connection = pymongo.MongoClient(
+                    host=loggingconf['handlers']['mongo']['host'],
+                    port=loggingconf['handlers']['mongo']['port'],
+                )
 
-            try:
-                logging.config.dictConfig(loggingconf)
-            except ServerSelectionTimeoutError:
-                print(u'Mongohandler 初始化失败，检查 MongoDB 否正常')
-                raise
+                try:
+                    logging.config.dictConfig(loggingconf)
+                except ServerSelectionTimeoutError:
+                    print(u'Mongohandler 初始化失败，检查 MongoDB 否正常')
+                    raise
             self.log = logging.getLogger('root')
         else:
             self.log = logging.getLogger()
@@ -242,13 +244,13 @@ class Washer(object):
         date = r.date.last()
         high = r.high.max()
         low = r.low.min()
-        lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
+        # lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
         _open = r.open.first()
         openInterest = r.openInterest.max()
         symbol = df['symbol'][0]  # r.symbol.
         time = r.time.last()
         tradingDay = df['tradingDay'][0]
-        upperLimit = df['upperLimit'][0]
+        # upperLimit = df['upperLimit'][0]
         volume = r.volume.max()
 
         # 构建新的完整的数据
@@ -257,13 +259,13 @@ class Washer(object):
             'date': date,
             'high': high,
             'low': low,
-            'lowerLimit': lowerLimit,
+            # 'lowerLimit': lowerLimit,
             'open': _open,
             'openInterest': openInterest,
             'symbol': symbol,
             'time': time,
             'tradingDay': tradingDay,
-            'upperLimit': upperLimit,
+            # 'upperLimit': upperLimit,
             'volume': volume,
         }).dropna(how='any')
         ndf.openInterest = ndf.openInterest.astype('int')
@@ -332,6 +334,8 @@ if __name__ == '__main__':
 
     with open(loggingConfigFile, 'r') as f:
         loggingConfig = json.load(f)
+
+    logging.loaded = False
 
     w = Washer(loggingConfig=loggingConfig, **kwargs)
     import arrow

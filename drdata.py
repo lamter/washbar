@@ -1,5 +1,6 @@
 import datetime
 
+import tradingtime as tt
 import pymongo
 from pymongo.errors import OperationFailure
 from pymongo import IndexModel, ASCENDING, DESCENDING
@@ -60,8 +61,8 @@ class DRData(object):
         # 原始数据
         self.originData = {}  # {symbol: DataFrame()}
         self.originDailyData = None  # DataFrame()
+        self.originDailyDataByDate = None # DataFrame()
         self.contractData = {}  # {symbol: Contract()}
-
         self._active = False
         self.queue = Queue(10)
         self._run = Thread(target=self.__run, name="{} 存库".format(self.type))
@@ -108,6 +109,29 @@ class DRData(object):
 
         self.log.info('加载了 {} 日线条数据'.format(df.shape[0]))
         self.originDailyData = df
+
+        if df.shape[0] > 0:
+            group = df.groupby('symbol').size()
+            self.log.info('加载了 {} 个合约'.format(group.shape[0]))
+
+    def loadOriginDailyDataByDate(self, tradingDay):
+        """
+        从数据库加载数据
+        :return:
+        """
+        self.originData.clear()
+        sql = {'tradingDay': tradingDay}
+
+        cursor = self.bar_1dayCollection.find(sql, {'_id': 0}).hint('tradingDay')
+
+        df = pd.DataFrame([i for i in cursor])
+
+        self.log.info('加载了 {} 日线条数据'.format(df.shape[0]))
+
+        if df.shape[0] > 0:
+            df['underlyingSymbol'] = df.symbol.apply(tt.contract2name)
+
+        self.originDailyDataByDate = df
 
         if df.shape[0] > 0:
             group = df.groupby('symbol').size()
