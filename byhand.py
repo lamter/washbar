@@ -29,14 +29,14 @@ with open(loggingConfigFile, 'r') as f:
 logging.loaded = False
 
 try:
-    startDate = arrow.get('2017-08-31 00:00:00+08:00').datetime
-    endDate = arrow.get('2017-08-31 00:00:00+08:00').datetime
+    startDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
+    endDate = arrow.get('2017-10-31 00:00:00+08:00').datetime
     tradingDay = startDate
     while tradingDay <= endDate:
         # 清洗数据
-        w = Washer(loggingConfig=loggingConfig, **kwargs)
-        w.tradingDay = tradingDay
-        w.start()
+        # w = Washer(loggingConfig=loggingConfig, **kwargs)
+        # w.tradingDay = tradingDay
+        # w.start()
 
         # 聚合日线数据
         a = AggregateBar(loggingConfig=loggingConfig, **kwargs)

@@ -217,13 +217,16 @@ class Washer(object):
         else:
             ndf = df.copy()
 
-        # 计算 volume 增量 vol
+        # 原始数据中, volume 是总量，这里用 vol 替换
+        # vol 此时为总量，同时重新定义 volume 为增量
+        # 计算 增量 volume
+        ndf['vol'] = ndf['volume']
         volumeSeries = ndf.volume.diff()
         volumeSeries.apply(lambda vol: np.nan if vol < 0 else vol)
         volumeSeries.iat[0] = ndf.volume[0]
         volumeSeries = volumeSeries.fillna(method='bfill')
         volumeSeries.astype('int')
-        ndf['vol'] = volumeSeries
+        ndf['volume'] = volumeSeries
         # print(ndf[['vol', 'volume']].tail())
 
         # 将新数据保存
@@ -290,7 +293,7 @@ class Washer(object):
         openInterest = r.openInterest.last()
         symbol = df['symbol'][0]  # r.symbol.
         time = r.time.last()
-        volume = r.volume.last()
+        volume = r.volume.sum()
 
         # 构建新的完整的数据
         ndf = pd.DataFrame({
