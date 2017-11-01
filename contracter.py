@@ -56,19 +56,10 @@ class Contracter(Washer):
 
         # 判断当前主力合约
         for us in self.contractListByUnderlyingSymbol.keys():
-            # # TODO 测试代码 >>>
-            # if us != 'hc':
-            #     continue
-            # # <<<<<<<<<<<<<<<
-
             self.findOldActiveContract(us)
 
         # 从日线数据找出主力合约
         for us in self.contractListByUnderlyingSymbol.keys():
-            # # TODO 测试代码 >>>
-            # if us != 'hc':
-            #     continue
-            #     # <<<<<<<<<<<<<<<
             self.findNewActiveContract(us)
 
         # 保存合约数据
@@ -135,7 +126,6 @@ class Contracter(Washer):
             return
 
         activeContract = self.activeContractDic.get(us)
-
         contractDic = self.drData.contractData
 
         maxVolumeDf = df[df.volume == df.volume.max()]
