@@ -8,13 +8,16 @@ from aggregatebar import AggregateBar
 from contracter import Contracter
 from hiscontract import HisContracter
 
+logging.loaded = False
+
 settingFile = 'conf/kwarg.json'
-loggingConfigFile = 'conf/logconfig.json'
+# loggingConfigFile = 'conf/logconfig.json'
+loggingConfigFile = 'conf/logging.conf'
 serverChanFile = 'conf/serverChan.json'
 
 if __debug__:
     settingFile = 'tmp/kwarg.json'
-    loggingConfigFile = 'tmp/logconfig.json'
+    loggingConfigFile = 'tmp/logging.conf'
 
 with open(serverChanFile, 'r') as f:
     serverChanUrls = json.load(f)['serverChanSlaveUrls']
@@ -22,26 +25,25 @@ with open(serverChanFile, 'r') as f:
 with open(settingFile, 'r') as f:
     kwargs = json.load(f)
 
-with open(loggingConfigFile, 'r') as f:
-    loggingConfig = json.load(f)
+# with open(loggingConfigFile, 'r') as f:
+#     loggingConfig = json.load(f)
 
-logging.loaded = False
 
 try:
     # 清洗数据
-    w = Washer(loggingConfig=loggingConfig, **kwargs)
+    w = Washer(loggingConfigFile=loggingConfigFile, **kwargs)
     w.start()
 
     # 聚合日线数据
-    a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
+    a = AggregateBar(loggingConfigFile=loggingConfigFile, **kwargs)
     a.start()
 
     # 更新合约的始末日期
-    h = HisContracter(loggingConfig=loggingConfig, **kwargs)
+    h = HisContracter(loggingConfigFile=loggingConfigFile, **kwargs)
     h.start()
 
     # 生成主力合约数据
-    c = Contracter(loggingConfig=loggingConfig, **kwargs)
+    c = Contracter(loggingConfigFile=loggingConfigFile, **kwargs)
     c.start()
 
 except:

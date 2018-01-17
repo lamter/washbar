@@ -34,7 +34,8 @@ class DRData(object):
         self.log = logging.getLogger(logName)
 
         # 初始化 MongoDB 链接
-        self.log.info('建立 mongo 链接 {host}.{dbn}.{collection}'.format(**mongoConf))
+        l = '建立 mongo 链接 {host}.{dbn}.{collection}'.format(**mongoConf)
+        self.log.info(l)
         db = pymongo.MongoClient(mongoConf['host'], mongoConf['port'])[mongoConf['dbn']]
         db.authenticate(mongoConf['username'], mongoConf['password'])
         db.client.server_info()

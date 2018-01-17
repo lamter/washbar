@@ -6,6 +6,7 @@ import pytz
 from threading import Thread
 from itertools import chain
 import json
+from time import sleep
 
 import pymongo
 from pymongo.errors import ServerSelectionTimeoutError
@@ -24,14 +25,23 @@ class Washer(object):
 
     LOCAL_TIMEZONE = pytz.timezone('Asia/Shanghai')
 
-    def __init__(self, mongoConf, slavemConf, loggingConfig=None):
+    def __init__(self, mongoConf, slavemConf, loggingConfigFile=None):
+        if not logging.loaded:
+            logging.loaded = True
+            logging.config.fileConfig(loggingConfigFile)
+
+        self.log = logging.getLogger('root')
+
+        self.log4mongoActive = True
+        self.keeplog4mongo = Thread(target=self._keeplog4mongo, name='keeplog4mongo')
+
         self.mongoConf = mongoConf  # [{conf}, {conf}]
         self.mongoCollections = []  # 是 collections, 不是 client, db
 
         # slavem 汇报
         self.slavemReport = Reporter(**slavemConf)
 
-        self.initLog(loggingConfig)
+        # self.initLog(loggingConfigFile)
 
         self.drDataLocal = DRData(self, DRData.TYPE_LOCAL, mongoConf['mongoLocal'])
         self.drDataRemote = DRData(self, DRData.TYPE_REMOTE, mongoConf['mongoRemote'])
@@ -41,46 +51,46 @@ class Washer(object):
             datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0))
         self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
 
-    def initLog(self, loggingconf):
-        """
-        初始化日志
-        :param loggingconf:
-        :return:
-        """
-        if loggingconf:
-            if not logging.loaded:
-                logging.config.loaded = True
-                # log4mongo 的bug导致使用非admin用户时，建立会报错。
-                # 这里使用注入的方式跳过会报错的代码
-                import log4mongo.handlers
-                log4mongo.handlers._connection = pymongo.MongoClient(
-                    host=loggingconf['handlers']['mongo']['host'],
-                    port=loggingconf['handlers']['mongo']['port'],
-                )
-
-                try:
-                    logging.config.dictConfig(loggingconf)
-                except ServerSelectionTimeoutError:
-                    print(u'Mongohandler 初始化失败，检查 MongoDB 否正常')
-                    raise
-            self.log = logging.getLogger('root')
-        else:
-            self.log = logging.getLogger()
-            self.log.setLevel('DEBUG')
-            fmt = "%(asctime)-15s %(levelname)s %(filename)s %(lineno)d %(process)d %(message)s"
-            # datefmt = "%a-%d-%b %Y %H:%M:%S"
-            datefmt = None
-            formatter = logging.Formatter(fmt, datefmt)
-            sh = logging.StreamHandler(sys.stdout)
-            sh.setFormatter(formatter)
-            sh.setLevel('DEBUG')
-            self.log.addHandler(sh)
-
-            sh = logging.StreamHandler(sys.stderr)
-            sh.setFormatter(formatter)
-            sh.setLevel('WARN')
-            self.log.addHandler(sh)
-            self.log.warning(u'未配置 loggingconfig')
+    # def _initLog(self, loggingconf):
+    #     """
+    #     初始化日志
+    #     :param loggingconf:
+    #     :return:
+    #     """
+    #     if loggingconf:
+    #         if not logging.loaded:
+    #             logging.config.loaded = True
+    #             # log4mongo 的bug导致使用非admin用户时，建立会报错。
+    #             # 这里使用注入的方式跳过会报错的代码
+    #             import log4mongo.handlers
+    #             log4mongo.handlers._connection = pymongo.MongoClient(
+    #                 host=loggingconf['handlers']['mongo']['host'],
+    #                 port=loggingconf['handlers']['mongo']['port'],
+    #             )
+    #
+    #             try:
+    #                 logging.config.dictConfig(loggingconf)
+    #             except ServerSelectionTimeoutError:
+    #                 print(u'Mongohandler 初始化失败，检查 MongoDB 否正常')
+    #                 raise
+    #         self.log = logging.getLogger('root')
+    #     else:
+    #         self.log = logging.getLogger()
+    #         self.log.setLevel('DEBUG')
+    #         fmt = "%(asctime)-15s %(levelname)s %(filename)s %(lineno)d %(process)d %(message)s"
+    #         # datefmt = "%a-%d-%b %Y %H:%M:%S"
+    #         datefmt = None
+    #         formatter = logging.Formatter(fmt, datefmt)
+    #         sh = logging.StreamHandler(sys.stdout)
+    #         sh.setFormatter(formatter)
+    #         sh.setLevel('DEBUG')
+    #         self.log.addHandler(sh)
+    #
+    #         sh = logging.StreamHandler(sys.stderr)
+    #         sh.setFormatter(formatter)
+    #         sh.setLevel('WARN')
+    #         self.log.addHandler(sh)
+    #         self.log.warning(u'未配置 loggingconfig')
 
     def start(self):
         try:
@@ -119,6 +129,7 @@ class Washer(object):
         # 结束存库循环
         self.drDataLocal.stop()
         self.drDataRemote.stop()
+        self.log4mongoActive = False
 
     def loadOriginData(self):
         """
@@ -319,6 +330,25 @@ class Washer(object):
         ndf['tradingDay'] = ndf.index
         return ndf
 
+    def _keeplog4mongo(self):
+        """
+
+        :return:
+        """
+        for h in self.log.handlers:
+            if hasattr(h, 'connect'):
+                c = h.connect
+                break
+        else:
+            self.log.warning(u'log4mongo 未连接')
+            return
+        num = 0
+        while self.log4mongoActive:
+            sleep(1)
+            num += 1
+            if num % 60 == 0:
+                c.server_info()
+
 
 if __name__ == '__main__':
     settingFile = 'conf/kwarg.json'
@@ -342,5 +372,6 @@ if __name__ == '__main__':
 
     w = Washer(loggingConfig=loggingConfig, **kwargs)
     import arrow
+
     w.tradingDay = arrow.get('2017-10-24 00:00:00+08:00').datetime
     w.start()
