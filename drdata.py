@@ -34,7 +34,7 @@ class DRData(object):
         self.log = logging.getLogger(logName)
 
         # 初始化 MongoDB 链接
-        l = '建立 mongo 链接 {host}.{dbn}.{collection}'.format(**mongoConf)
+        l = '建立 mongo 链接 {host}:{port} {dbn}.{collection}'.format(**mongoConf)
         self.log.info(l)
         db = pymongo.MongoClient(mongoConf['host'], mongoConf['port'])[mongoConf['dbn']]
         db.authenticate(mongoConf['username'], mongoConf['password'])
@@ -49,7 +49,7 @@ class DRData(object):
         self.bar_1dayCollection = db[mongoConf['dayCollection']].with_options(
             codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
 
-        # 1min bar 的 collection
+        # 合约 的 collection
         self.contractCollection = db[mongoConf['contractCollection']].with_options(
             codec_options=CodecOptions(tz_aware=True, tzinfo=self.mainEngine.LOCAL_TIMEZONE))
 
@@ -62,7 +62,7 @@ class DRData(object):
         # 原始数据
         self.originData = {}  # {symbol: DataFrame()}
         self.originDailyData = None  # DataFrame()
-        self.originDailyDataByDate = None # DataFrame()
+        self.originDailyDataByDate = None  # DataFrame()
         self.contractData = {}  # {symbol: Contract()}
         self._active = False
         self.queue = Queue(10)
@@ -80,7 +80,7 @@ class DRData(object):
         self.originData.clear()
         sql = {'tradingDay': self.mainEngine.tradingDay}
 
-        cursor = self.bar_1minCollection.find(sql).hint('tradingDay')
+        cursor = self.bar_1minCollection.find(sql)
         df = pd.DataFrame([i for i in cursor])
 
         self.log.info('加载了 {} 条数据'.format(df.shape[0]))
@@ -96,7 +96,7 @@ class DRData(object):
 
     def loadOriginDailyData(self, startDate):
         """
-        从数据库加载数据
+        从日线数据库加载数据，加载 startDate 之后的数据
         :return:
         """
         self.originData.clear()
@@ -117,7 +117,7 @@ class DRData(object):
 
     def loadOriginDailyDataByDate(self, tradingDay):
         """
-        从数据库加载数据
+        从数据库加载数据，记载指定日期的日线数据
         :return:
         """
         self.originData.clear()
@@ -125,8 +125,10 @@ class DRData(object):
 
         cursor = self.bar_1dayCollection.find(sql, {'_id': 0}).hint('tradingDay')
 
-        df = pd.DataFrame([i for i in cursor])
+        self._loadOriginDailyDataByDate(cursor)
 
+    def _loadOriginDailyDataByDate(self, cursor):
+        df = pd.DataFrame([i for i in cursor])
         self.log.info('加载了 {} 日线条数据'.format(df.shape[0]))
 
         if df.shape[0] > 0:
@@ -148,6 +150,9 @@ class DRData(object):
 
         }
         cursor = self.contractCollection.find(sql, {'_id': 0})
+        self._loadContractData(cursor)
+
+    def _loadContractData(self, cursor):
         for od in cursor:
             c = Contract(od)
             self.contractData[c.symbol] = c

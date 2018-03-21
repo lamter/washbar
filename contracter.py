@@ -2,11 +2,7 @@ import arrow
 import json
 from wash import Washer
 import datetime
-
-import pandas as pd
-import tradingtime as tt
-
-from slaveobject import Contract
+import traceback
 
 
 class Contracter(Washer):
@@ -23,12 +19,14 @@ class Contracter(Washer):
         # 今天品种的主力合约
         self.activeContractDic = {}  # {'underlyingSymbol': Contract()}
         self.drData = None
+        self.activeContractChangeDic = {}  # {oldActiveContract: newActiveContract}
 
     def init(self):
         """
 
         :return:
         """
+        self.log.info('处理合约信息 {}'.format(self.tradingDay))
         self.loadOriginDailyDataByDate(self.tradingDay)
         self.loadContractData()
         self.drData = self.drDataLocal
@@ -60,10 +58,18 @@ class Contracter(Washer):
 
         # 从日线数据找出主力合约
         for us in self.contractListByUnderlyingSymbol.keys():
+            if us != 'T':
+                # TODO 测试代码
+                continue
             self.findNewActiveContract(us)
 
         # 保存合约数据
-        self.saveActiveContraact()
+        # TODO 测试代码
+        self.log.warning('测试中，不存库')
+        # self.saveActiveContraact()
+
+        # 汇报新旧主力合约变化
+        self.reportNewActiveContract()
 
     def sortByUnderlyingSymbol(self):
         """
@@ -113,7 +119,7 @@ class Contracter(Washer):
 
     def findNewActiveContract(self, underlyingSymbol):
         """
-        根据当天日线数据好处主力合约
+        根据当天日线数据找出主力合约
         :param underlyingSymbol:
         :return:
         """
@@ -125,7 +131,7 @@ class Contracter(Washer):
         if df.shape[0] == 0:
             return
 
-        activeContract = self.activeContractDic.get(us)
+        oldActiveContract = activeContract = self.activeContractDic.get(us)
         contractDic = self.drData.contractData
 
         maxVolumeDf = df[df.volume == df.volume.max()]
@@ -136,7 +142,12 @@ class Contracter(Washer):
                 activeContract = c
             else:
                 if c.startDate > activeContract.startDate or c.endDate > activeContract.endDate:
+                    # 汇报新旧主力合约替换
                     activeContract = c
+
+        if oldActiveContract != activeContract:
+            # 主力合约出现变化，汇报
+            self.activeContractChangeDic[oldActiveContract] = activeContract
 
         if activeContract:
             # 更新主力合约的始末日期
@@ -153,6 +164,41 @@ class Contracter(Washer):
         self.drData.updateContracts(contracts)
         if not __debug__:
             self.drDataLocal.updateContracts(contracts)
+
+    def reportNewActiveContract(self):
+        """
+        当主力合约出现更换时，进行邮件汇报
+        :return:
+        """
+        if not self.activeContractChangeDic:
+            # 没有变化，不需要汇报
+            self.log.info('没有主力合约变更')
+            return
+        self._reportNewActiveContract()
+
+    def _reportNewActiveContract(self):
+
+        # 组织汇报内容
+        text = '主力合约变动\n'
+
+        if self.drDataLocal.originDailyDataByDate is None:
+            self.drDataLocal.loadOriginDailyDataByDate(self.tradingDay)
+
+        # DataFrame
+        odd = self.drDataLocal.originDailyDataByDate.copy()
+        odd.set_index('symbol', inplace=True)
+
+        for o, n in self.activeContractChangeDic.items():
+            # 新旧合约变化
+            dic = {
+                'old': o.symbol,
+                'new': n.symbol,
+                'oldVolume': odd.loc[o.symbol, 'volume'],
+                'newVolume': odd.loc[n.symbol, 'volume'],
+            }
+            text += '{old} vol:{oldVolume} -> {new} vol:{newVolume} '.format(**dic)
+
+        self.log.warning(text)
 
 
 if __name__ == '__main__':
@@ -174,6 +220,7 @@ if __name__ == '__main__':
         loggingConfig = json.load(f)
 
     import logging
+
     logging.loaded = False
 
     startDate = None
