@@ -58,15 +58,10 @@ class Contracter(Washer):
 
         # 从日线数据找出主力合约
         for us in self.contractListByUnderlyingSymbol.keys():
-            if us != 'T':
-                # TODO 测试代码
-                continue
             self.findNewActiveContract(us)
 
         # 保存合约数据
-        # TODO 测试代码
-        self.log.warning('测试中，不存库')
-        # self.saveActiveContraact()
+        self.saveActiveContraact()
 
         # 汇报新旧主力合约变化
         self.reportNewActiveContract()
