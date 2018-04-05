@@ -31,7 +31,6 @@ class Contract(BaseObject):
         self.underlyingSymbol = tt.contract2name(self.symbol)
         # 需要保存到数据库 ================
 
-
     def updateDate(self, starDate, endDate):
         # 起始日，要更小的日期
         self.startDate = min(starDate, self.startDate) if self.startDate else starDate
@@ -45,13 +44,11 @@ class Contract(BaseObject):
         else:
             self.activeStartDate = min(self.activeStartDate, tradingDay)
 
-
     def updateActiveEndDate(self, tradingDay):
         if self.activeEndDate is None:
             self.activeEndDate = tradingDay
         else:
             self.activeEndDate = max(self.activeEndDate, tradingDay)
-
 
     def __str__(self):
         s = super(Contract, self).__str__()

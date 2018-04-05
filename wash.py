@@ -16,7 +16,6 @@ import tradingtime as tt
 import numpy as np
 import pandas as pd
 
-
 from drdata import DRData
 
 
@@ -27,8 +26,8 @@ class Washer(object):
 
     LOCAL_TIMEZONE = pytz.timezone('Asia/Shanghai')
 
-    def __init__(self, mongoConf, tradingDayTmp):
-        self.log = logging.getLogger('root')
+    def __init__(self, mongoConf, tradingDayTmp, startDate=None):
+        self.log = logging.getLogger()
 
         self.log4mongoActive = True
         self.keeplog4mongo = Thread(target=self._keeplog4mongo, name='keeplog4mongo')
@@ -41,10 +40,17 @@ class Washer(object):
         self.drDataLocal = DRData(self, DRData.TYPE_LOCAL, mongoConf['mongoLocal'])
         self.drDataRemote = DRData(self, DRData.TYPE_REMOTE, mongoConf['mongoRemote'])
 
-        # 设定当前要处理的交易日
-        self.isTradingDay, self.tradingDay = tt.get_tradingday(
-            datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0))
-        self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
+        if startDate is None:
+            startDate = datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+
+            # 设定当前要处理的交易日
+            self.isTradingDay, self.tradingDay = tt.get_tradingday(startDate)
+        else:
+            self.tradingDay = startDate
+            self.isTradingDay = True
+
+        if not self.tradingDay.tzinfo:
+            self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
 
         # 核对tradingDay 是否已经完成过了
         self.tradingDayTmp = tradingDayTmp
@@ -195,14 +201,7 @@ class Washer(object):
 
         # 将新数据保存
         self.drDataLocal.updateData(ndf)
-        if not __debug__:
-            self.drDataRemote.updateData(ndf)
-            # 保存日线数据
-            # ndf = ndf.set_index('tradingDay')
-            # dayndf = self.resample1DayBar(ndf)
-            # self.drDataLocal.updateDayData(dayndf)
-            # if not __debug__:
-            #     self.drDataRemote.updateDayData(dayndf)
+        self.drDataRemote.updateData(ndf)
 
     @staticmethod
     def resample1MinBar(df):
@@ -307,6 +306,7 @@ class Washer(object):
         检查已经清洗的交易日
         :return:
         """
+        # return
         try:
             with open(self.tradingDayTmp, 'r') as f:
                 tradingDayCache = arrow.get(f.read()).datetime
@@ -325,6 +325,7 @@ class Washer(object):
         # 保存已经清洗过的 tradingDay
         with open(self.tradingDayTmp, 'w') as f:
             f.write(str(self.tradingDay))
+
 
 if __name__ == '__main__':
     settingFile = 'conf/kwarg.json'

@@ -1,6 +1,11 @@
 import datetime
 import json
 import traceback
+import os
+import logging.config
+from threading import Thread, Event
+from slavem import Reporter
+import time
 
 import arrow
 import logging.config
@@ -10,68 +15,70 @@ from contracter import Contracter
 from hiscontract import HisContracter
 
 settingFile = 'conf/kwarg.json'
-loggingConfigFile = 'conf/logconfig.json'
-serverChanFile = 'conf/serverChan.json'
+loggingConfigFile = 'conf/logging.conf'
+
+# serverChanFile = 'conf/serverChan.json'
 
 if __debug__:
     settingFile = 'tmp/kwarg.json'
-    loggingConfigFile = 'tmp/logconfig.json'
+    loggingConfigFile = 'tmp/logging.conf'
 
-with open(serverChanFile, 'r') as f:
-    serverChanUrls = json.load(f)['serverChanSlaveUrls']
+# with open(serverChanFile, 'r') as f:
+#     serverChanUrls = json.load(f)['serverChanSlaveUrls']
 
 with open(settingFile, 'r') as f:
     kwargs = json.load(f)
 
-with open(loggingConfigFile, 'r') as f:
-    loggingConfig = json.load(f)
+# with open(loggingConfigFile, 'r') as f:
+#     loggingConfig = json.load(f)
 
-logging.loaded = False
+# 加载日志模块
+logging.config.fileConfig(loggingConfigFile)
+logger = logging.getLogger()
+
+# 汇报
+stopped = Event()
+slavemReport = Reporter(**kwargs.pop('slavemConf'))
+
+
+# 启动心跳进程
+def heartBeat():
+    while not stopped.wait(30):
+        slavemReport.heartBeat()
+
+
+beat = Thread(target=heartBeat, daemon=True)
+
+startDate = arrow.get('2018-04-02 00:00:00+08:00').datetime
+endDate = arrow.get('2018-04-04 00:00:00+08:00').datetime
+
+tradingDay = startDate
 
 try:
-    startDate = arrow.get('2017-11-01 00:00:00+08:00').datetime
-    endDate = arrow.get('2017-11-01 00:00:00+08:00').datetime
-    tradingDay = startDate
     while tradingDay <= endDate:
         # 清洗数据
-        w = Washer(loggingConfig=loggingConfig, **kwargs)
-        w.tradingDay = tradingDay
+        w = Washer(startDate=tradingDay, **kwargs)
         w.start()
 
         # 聚合日线数据
-        a = AggregateBar(loggingConfig=loggingConfig, **kwargs)
-        a.tradingDay = tradingDay
+        a = AggregateBar(startDate=tradingDay, **kwargs)
         a.start()
 
         # 更新合约的始末日期
-        h = HisContracter(loggingConfig=loggingConfig, startDate=tradingDay, **kwargs)
+        h = HisContracter(startDate=tradingDay, **kwargs)
         h.start()
 
         # 生成主力合约数据
-        c = Contracter(loggingConfig=loggingConfig, startDate=tradingDay, **kwargs)
+        c = Contracter(startDate=tradingDay, **kwargs)
         c.start()
 
         tradingDay += datetime.timedelta(days=1)
-
+    os.system('say "清洗数据完成"')
 except:
     e = traceback.format_exc()
-    print(e)
+    logger.critical(e)
+    time.sleep(3)
+    os.system('say "失败，失败，失败"')
 
-    if __debug__:
-        exit()
-
-    e.replace('\n', '\n\n')
-    import requests
-    import time
-
-    for url in serverChanUrls.values():
-        serverChanUrl = requests.get(url).text
-        text = 'washbar - {} - 数据清洗异常'.format(kwargs['mongoConf']['mongoLocal']['host'])
-        url = serverChanUrl.format(serverChanUrl, text=text, desp=e)
-        while True:
-            r = requests.get(url)
-            if r.status_code == 200:
-                break
-            else:
-                time.sleep(60)
-    raise
+finally:
+    pass

@@ -30,7 +30,7 @@ with open(settingFile, 'r') as f:
 
 # 加载日志模块
 logging.config.fileConfig(loggingConfigFile)
-logger = logging.getLogger('root')
+logger = logging.getLogger()
 
 # 汇报
 stopped = Event()
