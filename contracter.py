@@ -2,11 +2,7 @@ import arrow
 import json
 from wash import Washer
 import datetime
-
-import pandas as pd
-import tradingtime as tt
-
-from slaveobject import Contract
+import traceback
 
 
 class Contracter(Washer):
@@ -17,163 +13,215 @@ class Contracter(Washer):
     def __init__(self, startDate=None, *args, **kwargs):
         super(Contracter, self).__init__(*args, **kwargs)
         # 开始从哪个交易日开始回溯数据
-        self.startTradingDay = startDate or self.tradingDay
+        self._inited = False
+        self.tradingDay = startDate or self.tradingDay
+        self.contractListByUnderlyingSymbol = {}  # {'underlyingSymbol': [Contract(), ...]}
+        # 今天品种的主力合约
+        self.activeContractDic = {}  # {'underlyingSymbol': Contract()}
+        self.drData = None
+        self.activeContractChangeDic = {}  # {oldActiveContract: newActiveContract}
 
-        self.contractByUnderlyingSymbol = {}  # {underlyingSymbol: set(Contract())}
-        self.contracts = {}
+    def init(self):
+        """
+
+        :return:
+        """
+        self.log.info('处理合约信息 {}'.format(self.tradingDay))
+        self.loadOriginDailyDataByDate(self.tradingDay)
+        self.loadContractData()
+        self.drData = self.drDataLocal
+        self._inited = True
+
+    def start(self):
+        """
+
+        :return:
+        """
+        self.init()
+        if not self._inited:
+            raise ValueError(u'尚未初始化')
+
+        self.run()
 
     def run(self):
-        self.log.info('isTradingDay: {}'.format(self.isTradingDay))
-        self.log.info('startTradingDay {}'.format(self.startTradingDay))
 
-        # 加载合约数据
-        self.loadContractData()
-
-        # 加载日线数据
-        self.loadOriginDailyData(self.startTradingDay)
-
-        drData = self.drDataLocal
-
-        # 合约详情
-        self.contracts = drData.contractData
-
-        # 日线数据
-        self.dailyBarDF = drData.originDailyData[['symbol', 'tradingDay', 'volume']].copy()
-        self.dailyBarDF['underlyingSymbol'] = self.dailyBarDF['symbol'].apply(tt.contract2name)
-
-        # 根据品种名缓存合约
-        self.log.info('根据品种名缓存合约')
-        self.refreshContractByUnderlyingSymbol()
-
-        # 更新合约详情中的数据始末日期
-        self.log.info('更新合约详情中的数据始末日期')
-        self.updateStartEndDate()
-
-        # 根据品种名缓存合约
-        self.log.info('再次 根据品种名缓存合约')
-        self.refreshContractByUnderlyingSymbol()
-
-        # 按照品种分组
-        group = self.dailyBarDF.groupby('underlyingSymbol').size()
-        underlyingSymbolList = group.index.values
-
-        # 按照日期排序，逐日更新主力合约
-        for underlyingSymbol in underlyingSymbolList:
-            self.updateActiveByUnderlyingSymbol(underlyingSymbol)
-
-        # 将合约存库
-        self.saveContracts()
-
-    def updateActiveByUnderlyingSymbol(self, underlyingSymbol):
-        # 逐日，按品种，跟新合约
-        df = self.dailyBarDF
-        # 选取品种
-        df = df[df.underlyingSymbol == underlyingSymbol]
-        # 根据日期排序
-        df = df.sort_values('tradingDay', inplace=False)
-
-        # 获得当前的主力合约
-        try:
-            contractList = [c for c in self.contractByUnderlyingSymbol[underlyingSymbol] if c.startDate is not None]
-        except KeyError:
-            self.log.warning(u'{} 没有任何合约'.format(underlyingSymbol))
+        if self.drData.originDailyDataByDate.shape[0] == 0:
+            self.log.info(u'{} 交易日没有任何数据'.format(self.tradingDay))
             return
 
-        contractList.sort(key=lambda c: (c.startDate, c.symbol))
+        # 将合约按照品种分类
+        self.sortByUnderlyingSymbol()
 
-        # 获得每天的主力合约
-        activContract = df.groupby('tradingDay').apply(lambda t: t[t.volume == t.volume.max()])
-        activContract = activContract.sort_values('tradingDay', inplace=False)
-        activeContractList = activContract.to_dict('record')
+        # 判断当前主力合约
+        for us in self.contractListByUnderlyingSymbol.keys():
+            self.findOldActiveContract(us)
 
-        dic = activeContractList[0]
-        symbol, tradingDay = dic['symbol'], dic['tradingDay']
-        currentActive = self.contracts[symbol]
-        currentActive.updateActiveStartDate(tradingDay)
-        currentActive.updateActiveEndDate(tradingDay)
+        # 从日线数据找出主力合约
+        for us in self.contractListByUnderlyingSymbol.keys():
+            self.findNewActiveContract(us)
 
-        for dic in activeContractList:
-            # 逐日计算
-            symbol, tradingDay = dic['symbol'], dic['tradingDay']
-            con = self.contracts[symbol]
-            if currentActive is con:
-                # 仍然是主力合约
-                # 直接更新
-                currentActive.updateActiveStartDate(tradingDay)
-                # 主力最后一天
-                currentActive.updateActiveEndDate(tradingDay)
+        # 保存合约数据
+        self.saveActiveContraact()
+
+        # 汇报新旧主力合约变化
+        self.reportNewActiveContract()
+
+    def sortByUnderlyingSymbol(self):
+        """
+        将合约按照品种分类
+        :return:
+        """
+        for c in self.drData.contractData.values():
+            us = c.underlyingSymbol
+            try:
+                contractList = self.contractListByUnderlyingSymbol[us]
+            except KeyError:
+                self.contractListByUnderlyingSymbol[us] = contractList = []
+
+            # 放入同品种的队列
+            contractList.append(c)
+
+    def findOldActiveContract(self, unserlyingSymbol):
+        us = unserlyingSymbol
+        contractList = self.contractListByUnderlyingSymbol.get(us)
+
+        if not contractList:
+            return
+
+        activeContract = None
+
+        for c in contractList:
+            if c.activeEndDate:
+                # 曾经是活跃合约
+                if activeContract is None:
+                    # 直接替换
+                    activeContract = c
+                else:
+                    # 判断哪个是更新的主力合约
+                    if c.activeEndDate > activeContract.activeEndDate:
+                        activeContract = c
+
+        if activeContract:
+            self.activeContractDic[us] = activeContract
+
+    def loadOriginDailyDataByDate(self, tradingDay):
+        """
+
+        :param date:
+        :return:
+        """
+        self.drDataLocal.loadOriginDailyDataByDate(tradingDay)
+
+    def findNewActiveContract(self, underlyingSymbol):
+        """
+        根据当天日线数据找出主力合约
+        :param underlyingSymbol:
+        :return:
+        """
+        us = underlyingSymbol
+
+        df = self.drData.originDailyDataByDate
+        df = df[df.underlyingSymbol == us]
+
+        if df.shape[0] == 0:
+            return
+
+        oldActiveContract = activeContract = self.activeContractDic.get(us)
+        if oldActiveContract is None:
+            self.log.warning(u'{} 没有主力合约'.format(us))
+
+        contractDic = self.drData.contractData
+
+        maxVolumeDf = df[df.volume == df.volume.max()]
+        for symbol in maxVolumeDf.symbol:
+            c = contractDic[symbol]
+            if activeContract is None:
+                # 尚未有任何主力合约
+                activeContract = c
             else:
-                # 跟主力合约 不一样 ，比较是否数据起始日期
-                if con.startDate and con.startDate > currentActive.startDate:
-                    # 主力合约被替换
-                    currentActive = con
-                    # 设定期货主力合约起始日
-                    currentActive.updateActiveStartDate(tradingDay)
-                    # 主力最后一天
-                    currentActive.updateActiveEndDate(tradingDay)
-                else:
-                    # 跟主力合约不一样，且没有主力合约没有被替换
-                    currentActive.updateActiveEndDate(tradingDay)
 
-    def updateStartEndDate(self):
-        dailyBarDF = self.dailyBarDF
-        contracts = self.contracts
-        tradingDays = dailyBarDF.groupby('symbol')['tradingDay']
-        # 起始日期
-        startDates = tradingDays.last()
-        endDates = tradingDays.first()
+                if c.startDate > activeContract.startDate:
+                    # 汇报新旧主力合约替换
+                    log = u'startDate {} {} '.format(c.symbol, c.startDate)
+                    log += u'{} {}'.format(activeContract.symbol, activeContract.startDate)
+                    self.log.info(log)
+                    activeContract = c
+                elif c.startDate == activeContract.startDate:
+                    # 已经结束了的合约
+                    if c.endDate > activeContract.endDate:
+                        log = u'endDate {} {} '.format(c.symbol, c.endDate)
+                        log += u'{} {}'.format(activeContract.symbol, activeContract.endDate)
+                        self.log.info(log)
+                        activeContract = c
+                else:  # c.startDate > activeContract.startDate
+                    pass
 
-        dates = pd.DataFrame({'endDate': endDates, 'startDate': startDates})
-        dates = dates.reset_index(inplace=False)
+        if oldActiveContract != activeContract:
+            # 主力合约出现变化，汇报
+            if oldActiveContract is None:
+                self.log.info(u'{} 没有主力合约 {} '.format(us, str(oldActiveContract), activeContract))
+            else:
+                self.activeContractChangeDic[oldActiveContract] = activeContract
 
-        for dic in dates.to_dict('record'):
-            # dic = {symbol:'hc1801', 'startDate':datetime(), 'endDate': datetime()}
-            symbol, startDate, endDate = dic['symbol'], dic['startDate'], dic['endDate']
+        if activeContract:
+            # 更新主力合约的始末日期
+            activeContract.updateActiveEndDate(self.tradingDay)
+            activeContract.updateActiveStartDate(self.tradingDay)
+            self.activeContractDic[us] = activeContract
+
+    def saveActiveContraact(self):
+        """
+        更新主力合约
+        :return:
+        """
+        contracts = {c.symbol: c for c in self.activeContractDic.values()}
+        self.drData.updateContracts(contracts)
+
+        self.drDataRemote.updateContracts(contracts)
+
+    def reportNewActiveContract(self):
+        """
+        当主力合约出现更换时，进行邮件汇报
+        :return:
+        """
+        if not self.activeContractChangeDic:
+            # 没有变化，不需要汇报
+            self.log.info('没有主力合约变更')
+            return
+        self._reportNewActiveContract()
+
+    def _reportNewActiveContract(self):
+
+        # 组织汇报内容
+        text = '主力合约变动\n'
+
+        if self.drDataLocal.originDailyDataByDate is None:
+            self.drDataLocal.loadOriginDailyDataByDate(self.tradingDay)
+
+        # DataFrame
+        odd = self.drDataLocal.originDailyDataByDate.copy()
+        odd.set_index('symbol', inplace=True)
+
+        for o, n in self.activeContractChangeDic.items():
+            # 新旧合约变化
             try:
-                c = contracts[symbol]
-                c.updateDate(startDate, endDate)
-                assert isinstance(c, Contract)
-            except KeyError:
-                # 尚未有这个合约
-                us = tt.contract2name(symbol)
                 try:
-                    contractsByUnderlying = list(self.contractByUnderlyingSymbol[us])
+                    oldVolume = odd.loc[o.symbol, 'volume']
                 except KeyError:
-                    self.log.warning(u'找不到相同品种的合约 {}'.format(symbol))
-                    continue
+                    oldVolume = 0
+                dic = {
+                    'old': o.symbol if o else None,
+                    'new': n.symbol,
+                    'oldVolume': oldVolume,
+                    'newVolume': odd.loc[n.symbol, 'volume'],
+                }
 
-                # 采用最新的合约，以便热门合约导数值失真
-                contractsByUnderlying.sort(key=lambda c: c.vtSymbol, reverse=True)
-                for c in contractsByUnderlying:
-                    # 寻找相同品种的合约顶替
-                    if c.underlyingSymbol == us:
-                        assert isinstance(c, Contract)
-                        c = Contract(c.originData)
-                        # 替换掉合约名即可
-                        c.symbol = symbol
-                        c.vtSymbol = symbol
-                        contracts[symbol] = c
-                        c.updateDate(startDate, endDate)
-                        break
-                else:
-                    self.log.warning(u'找不到相同品种的合约 {}'.format(symbol))
-                    continue
+                text += '{old} vol:{oldVolume} -> {new} vol:{newVolume} '.format(**dic)
+            except Exception:
+                err = traceback.format_exc()
+                self.log.error(err)
 
-    def refreshContractByUnderlyingSymbol(self):
-        contracts = self.contracts
-        cbus = self.contractByUnderlyingSymbol
-        for symbol, c in contracts.items():
-            try:
-                cs = cbus[c.underlyingSymbol]
-                cs.add(c)
-            except KeyError:
-                cbus[c.underlyingSymbol] = {c}
-
-    def saveContracts(self):
-        self.drDataLocal.updateContracts(self.contracts)
-
-        if not __debug__:
-            self.drDataRemote.updateContracts(self.contracts)
+        self.log.warning(text)
 
 
 if __name__ == '__main__':
@@ -194,7 +242,16 @@ if __name__ == '__main__':
     with open(loggingConfigFile, 'r') as f:
         loggingConfig = json.load(f)
 
+    import logging
+
+    logging.loaded = False
+
     startDate = None
-    startDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
-    c = Contracter(startDate, loggingConfig=loggingConfig, **kwargs)
-    c.start()
+    startDate = arrow.get('2014-03-24 00:00:00+08:00').datetime
+    endDate = arrow.get('2017-10-27 00:00:00+08:00').datetime
+
+    tradingDay = startDate
+    while tradingDay <= endDate:
+        c = Contracter(tradingDay, loggingConfig=loggingConfig, **kwargs)
+        c.start()
+        tradingDay += datetime.timedelta(days=1)

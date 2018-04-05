@@ -6,13 +6,15 @@ import pytz
 from threading import Thread
 from itertools import chain
 import json
+from time import sleep
+import traceback
 
+import arrow
 import pymongo
 from pymongo.errors import ServerSelectionTimeoutError
 import tradingtime as tt
 import numpy as np
 import pandas as pd
-from slavem import Reporter
 
 from drdata import DRData
 
@@ -24,61 +26,34 @@ class Washer(object):
 
     LOCAL_TIMEZONE = pytz.timezone('Asia/Shanghai')
 
-    def __init__(self, mongoConf, slavemConf, loggingConfig=None):
+    def __init__(self, mongoConf, tradingDayTmp, startDate=None):
+        self.log = logging.getLogger()
+
+        self.log4mongoActive = True
+        self.keeplog4mongo = Thread(target=self._keeplog4mongo, name='keeplog4mongo')
+
         self.mongoConf = mongoConf  # [{conf}, {conf}]
         self.mongoCollections = []  # 是 collections, 不是 client, db
 
-        # slavem 汇报
-        self.slavemReport = Reporter(**slavemConf)
-
-        self.initLog(loggingConfig)
+        # self.initLog(loggingConfigFile)
 
         self.drDataLocal = DRData(self, DRData.TYPE_LOCAL, mongoConf['mongoLocal'])
         self.drDataRemote = DRData(self, DRData.TYPE_REMOTE, mongoConf['mongoRemote'])
 
-        # 设定当前要处理的交易日
-        self.isTradingDay, self.tradingDay = tt.get_tradingday(
-            datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0))
-        self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
+        if startDate is None:
+            startDate = datetime.datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
 
-    def initLog(self, loggingconf):
-        """
-        初始化日志
-        :param loggingconf:
-        :return:
-        """
-        if loggingconf:
-            # log4mongo 的bug导致使用非admin用户时，建立会报错。
-            # 这里使用注入的方式跳过会报错的代码
-            import log4mongo.handlers
-            log4mongo.handlers._connection = pymongo.MongoClient(
-                host=loggingconf['handlers']['mongo']['host'],
-                port=loggingconf['handlers']['mongo']['port'],
-            )
-
-            try:
-                logging.config.dictConfig(loggingconf)
-            except ServerSelectionTimeoutError:
-                print(u'Mongohandler 初始化失败，检查 MongoDB 否正常')
-                raise
-            self.log = logging.getLogger('root')
+            # 设定当前要处理的交易日
+            self.isTradingDay, self.tradingDay = tt.get_tradingday(startDate)
         else:
-            self.log = logging.getLogger()
-            self.log.setLevel('DEBUG')
-            fmt = "%(asctime)-15s %(levelname)s %(filename)s %(lineno)d %(process)d %(message)s"
-            # datefmt = "%a-%d-%b %Y %H:%M:%S"
-            datefmt = None
-            formatter = logging.Formatter(fmt, datefmt)
-            sh = logging.StreamHandler(sys.stdout)
-            sh.setFormatter(formatter)
-            sh.setLevel('DEBUG')
-            self.log.addHandler(sh)
+            self.tradingDay = startDate
+            self.isTradingDay = True
 
-            sh = logging.StreamHandler(sys.stderr)
-            sh.setFormatter(formatter)
-            sh.setLevel('WARN')
-            self.log.addHandler(sh)
-            self.log.warning(u'未配置 loggingconfig')
+        if not self.tradingDay.tzinfo:
+            self.tradingDay = self.LOCAL_TIMEZONE.localize(self.tradingDay)
+
+        # 核对tradingDay 是否已经完成过了
+        self.tradingDayTmp = tradingDayTmp
 
     def start(self):
         try:
@@ -88,15 +63,11 @@ class Washer(object):
             raise
 
     def run(self):
-        """
+        # 检查已经清洗的交易日，如果校验不通过，则会在此抛出异常
+        self.checkTradingCache()
 
-        :return:
-        """
         self.log.info('isTradingDay: {}'.format(self.isTradingDay))
         self.log.info('清洗 {} 的数据'.format(self.tradingDay.date()))
-
-        # 汇报
-        self.slavemReport.lanuchReport()
 
         # 启动循环
         self.drDataLocal.start()
@@ -117,6 +88,7 @@ class Washer(object):
         # 结束存库循环
         self.drDataLocal.stop()
         self.drDataRemote.stop()
+        self.log4mongoActive = False
 
     def loadOriginData(self):
         """
@@ -215,25 +187,21 @@ class Washer(object):
         else:
             ndf = df.copy()
 
-        # 计算 volume 增量 vol
+        # 原始数据中, volume 是总量，这里用 vol 替换
+        # vol 此时为总量，同时重新定义 volume 为增量
+        # 计算 增量 volume
+        ndf['vol'] = ndf['volume']
         volumeSeries = ndf.volume.diff()
         volumeSeries.apply(lambda vol: np.nan if vol < 0 else vol)
+        volumeSeries.iat[0] = ndf.volume[0]
         volumeSeries = volumeSeries.fillna(method='bfill')
-        volumeSeries[0] = ndf.volume[0]
         volumeSeries.astype('int')
-        ndf['vol'] = volumeSeries
+        ndf['volume'] = volumeSeries
         # print(ndf[['vol', 'volume']].tail())
 
         # 将新数据保存
         self.drDataLocal.updateData(ndf)
-        if not __debug__:
-            self.drDataRemote.updateData(ndf)
-            # 保存日线数据
-            # ndf = ndf.set_index('tradingDay')
-            # dayndf = self.resample1DayBar(ndf)
-            # self.drDataLocal.updateDayData(dayndf)
-            # if not __debug__:
-            #     self.drDataRemote.updateDayData(dayndf)
+        self.drDataRemote.updateData(ndf)
 
     @staticmethod
     def resample1MinBar(df):
@@ -242,13 +210,13 @@ class Washer(object):
         date = r.date.last()
         high = r.high.max()
         low = r.low.min()
-        lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
+        # lowerLimit = df['lowerLimit'][0]  # r.lowerLimit.first()
         _open = r.open.first()
         openInterest = r.openInterest.max()
         symbol = df['symbol'][0]  # r.symbol.
         time = r.time.last()
         tradingDay = df['tradingDay'][0]
-        upperLimit = df['upperLimit'][0]
+        # upperLimit = df['upperLimit'][0]
         volume = r.volume.max()
 
         # 构建新的完整的数据
@@ -257,13 +225,13 @@ class Washer(object):
             'date': date,
             'high': high,
             'low': low,
-            'lowerLimit': lowerLimit,
+            # 'lowerLimit': lowerLimit,
             'open': _open,
             'openInterest': openInterest,
             'symbol': symbol,
             'time': time,
             'tradingDay': tradingDay,
-            'upperLimit': upperLimit,
+            # 'upperLimit': upperLimit,
             'volume': volume,
         }).dropna(how='any')
         ndf.openInterest = ndf.openInterest.astype('int')
@@ -288,7 +256,7 @@ class Washer(object):
         openInterest = r.openInterest.last()
         symbol = df['symbol'][0]  # r.symbol.
         time = r.time.last()
-        volume = r.volume.last()
+        volume = r.volume.sum()
 
         # 构建新的完整的数据
         ndf = pd.DataFrame({
@@ -314,6 +282,50 @@ class Washer(object):
         ndf['tradingDay'] = ndf.index
         return ndf
 
+    def _keeplog4mongo(self):
+        """
+
+        :return:
+        """
+        for h in self.log.handlers:
+            if hasattr(h, 'connect'):
+                c = h.connect
+                break
+        else:
+            self.log.warning(u'log4mongo 未连接')
+            return
+        num = 0
+        while self.log4mongoActive:
+            sleep(1)
+            num += 1
+            if num % 60 == 0:
+                c.server_info()
+
+    def checkTradingCache(self):
+        """
+        检查已经清洗的交易日
+        :return:
+        """
+        # return
+        try:
+            with open(self.tradingDayTmp, 'r') as f:
+                tradingDayCache = arrow.get(f.read()).datetime
+                self.log.debug('已经清洗的交易日 {}'.format(tradingDayCache))
+        except FileNotFoundError:
+            self.log.debug('{} 没有已清洗的交易日缓存'.format(self.tradingDayTmp))
+            pass
+        else:
+            if self.tradingDay <= tradingDayCache:
+                err = '行情数据已经清洗到了 {}, 数据清洗日期 {} 停止'.format(tradingDayCache, self.tradingDay)
+                if __debug__:
+                    self.log.debug('调试时请自行删除 {} 文件'.format(self.tradingDayTmp))
+                self.log.critical(err)
+                raise ValueError(err)
+
+        # 保存已经清洗过的 tradingDay
+        with open(self.tradingDayTmp, 'w') as f:
+            f.write(str(self.tradingDay))
+
 
 if __name__ == '__main__':
     settingFile = 'conf/kwarg.json'
@@ -333,7 +345,10 @@ if __name__ == '__main__':
     with open(loggingConfigFile, 'r') as f:
         loggingConfig = json.load(f)
 
+    logging.loaded = False
+
     w = Washer(loggingConfig=loggingConfig, **kwargs)
     import arrow
+
     w.tradingDay = arrow.get('2017-10-24 00:00:00+08:00').datetime
     w.start()
