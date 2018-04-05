@@ -29,13 +29,8 @@ class AggregateBar(Washer):
         # self.drDataLocal.start()
         # self.drDataRemote.start()
 
-        # 加载数据 ba
-        if __debug__:
-            self.log.debug('测试模式，同时加载两地的数据')
-            self.loadOriginData()
-        else:
-            # 从本地加载数据即可，此时已经完成了两地数据互补，两地数据已经一致了
-            self.drDataLocal.loadOriginData()
+        # 从本地加载数据即可，此时已经完成了两地数据互补，两地数据已经一致了
+        self.drDataLocal.loadOriginData()
 
         # 聚合5分钟 bar
         # 聚合15分钟 bar
@@ -66,15 +61,10 @@ class AggregateBar(Washer):
         :param symbol:
         :return:
         """
-        if __debug__:
-            if __debug__:
-                self.log.debug('使用 remote 数据聚合')
-            originData = self.drDataRemote.originData.get(symbol)
-        else:
-            originData = self.drDataLocal.originData.get(symbol)
+        originData = self.drDataLocal.originData.get(symbol)
 
         if originData is None:
-            self.log.warning('symbol {} local 没有数据可以聚合'.format(symbol))
+            # self.log.warning('symbol {} local 没有数据可以聚合'.format(symbol))
             return
 
         assert isinstance(originData, pd.DataFrame)

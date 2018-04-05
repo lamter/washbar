@@ -1,8 +1,13 @@
 import json
 import time
 import traceback
-
 import logging.config
+from threading import Thread, Event
+import arrow
+import datetime
+
+from slavem import Reporter
+
 from wash import Washer
 from aggregatebar import AggregateBar
 from contracter import Contracter
@@ -25,8 +30,28 @@ with open(settingFile, 'r') as f:
 
 # 加载日志模块
 logging.config.fileConfig(loggingConfigFile)
+logger = logging.getLogger()
+
+# 汇报
+stopped = Event()
+slavemReport = Reporter(**kwargs.pop('slavemConf'))
+
+
+# 启动心跳进程
+def heartBeat():
+    while not stopped.wait(30):
+        slavemReport.heartBeat()
+
+
+beat = Thread(target=heartBeat, daemon=True)
 
 try:
+    # 启动汇报
+    slavemReport.lanuchReport()
+    slavemReport.isActive = True
+
+    beat.start()
+
     # 清洗数据
     w = Washer(**kwargs)
     w.start()
@@ -45,24 +70,15 @@ try:
 
 except:
     e = traceback.format_exc()
-
-    logger = logging.getLogger('root')
     logger.critical(e)
     time.sleep(3)
 
-    raise
-
-    # e.replace('\n', '\n\n')
-    # import requests
-    # import time
-    # for url in serverChanUrls.values():
-    #     serverChanUrl = requests.get(url).text
-    #     text = 'washbar - {} - 数据清洗异常'.format(kwargs['mongoConf']['mongoLocal']['host'])
-    #     url = serverChanUrl.format(serverChanUrl, text=text, desp=e)
-    #     while True:
-    #         r = requests.get(url)
-    #         if r.status_code == 200:
-    #             break
-    #         else:
-    #             time.sleep(60)
-    # raise
+finally:
+    # 关闭心跳
+    stopped.set()
+    # 心跳超过2小时
+    beat.join(60 * 60 * 2)
+    if beat.isAlive():
+        # 运行超时了
+        logger.warning('心跳持续时间超时')
+    time.sleep(3)

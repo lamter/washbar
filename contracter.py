@@ -58,15 +58,10 @@ class Contracter(Washer):
 
         # 从日线数据找出主力合约
         for us in self.contractListByUnderlyingSymbol.keys():
-            if us != 'T':
-                # TODO 测试代码
-                continue
             self.findNewActiveContract(us)
 
         # 保存合约数据
-        # TODO 测试代码
-        self.log.warning('测试中，不存库')
-        # self.saveActiveContraact()
+        self.saveActiveContraact()
 
         # 汇报新旧主力合约变化
         self.reportNewActiveContract()
@@ -132,6 +127,9 @@ class Contracter(Washer):
             return
 
         oldActiveContract = activeContract = self.activeContractDic.get(us)
+        if oldActiveContract is None:
+            self.log.warning(u'{} 没有主力合约'.format(us))
+
         contractDic = self.drData.contractData
 
         maxVolumeDf = df[df.volume == df.volume.max()]
@@ -141,13 +139,29 @@ class Contracter(Washer):
                 # 尚未有任何主力合约
                 activeContract = c
             else:
-                if c.startDate > activeContract.startDate or c.endDate > activeContract.endDate:
+
+                if c.startDate > activeContract.startDate:
                     # 汇报新旧主力合约替换
+                    log = u'startDate {} {} '.format(c.symbol, c.startDate)
+                    log += u'{} {}'.format(activeContract.symbol, activeContract.startDate)
+                    self.log.info(log)
                     activeContract = c
+                elif c.startDate == activeContract.startDate:
+                    # 已经结束了的合约
+                    if c.endDate > activeContract.endDate:
+                        log = u'endDate {} {} '.format(c.symbol, c.endDate)
+                        log += u'{} {}'.format(activeContract.symbol, activeContract.endDate)
+                        self.log.info(log)
+                        activeContract = c
+                else:  # c.startDate > activeContract.startDate
+                    pass
 
         if oldActiveContract != activeContract:
             # 主力合约出现变化，汇报
-            self.activeContractChangeDic[oldActiveContract] = activeContract
+            if oldActiveContract is None:
+                self.log.info(u'{} 没有主力合约 {} '.format(us, str(oldActiveContract), activeContract))
+            else:
+                self.activeContractChangeDic[oldActiveContract] = activeContract
 
         if activeContract:
             # 更新主力合约的始末日期
@@ -162,8 +176,8 @@ class Contracter(Washer):
         """
         contracts = {c.symbol: c for c in self.activeContractDic.values()}
         self.drData.updateContracts(contracts)
-        if not __debug__:
-            self.drDataLocal.updateContracts(contracts)
+
+        self.drDataRemote.updateContracts(contracts)
 
     def reportNewActiveContract(self):
         """
@@ -190,13 +204,22 @@ class Contracter(Washer):
 
         for o, n in self.activeContractChangeDic.items():
             # 新旧合约变化
-            dic = {
-                'old': o.symbol,
-                'new': n.symbol,
-                'oldVolume': odd.loc[o.symbol, 'volume'],
-                'newVolume': odd.loc[n.symbol, 'volume'],
-            }
-            text += '{old} vol:{oldVolume} -> {new} vol:{newVolume} '.format(**dic)
+            try:
+                try:
+                    oldVolume = odd.loc[o.symbol, 'volume']
+                except KeyError:
+                    oldVolume = 0
+                dic = {
+                    'old': o.symbol if o else None,
+                    'new': n.symbol,
+                    'oldVolume': oldVolume,
+                    'newVolume': odd.loc[n.symbol, 'volume'],
+                }
+
+                text += '{old} vol:{oldVolume} -> {new} vol:{newVolume} '.format(**dic)
+            except Exception:
+                err = traceback.format_exc()
+                self.log.error(err)
 
         self.log.warning(text)
 

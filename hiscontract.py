@@ -117,8 +117,7 @@ class HisContracter(Washer):
     def saveContracts(self):
         self.drDataLocal.updateContracts(self.contracts)
 
-        if not __debug__:
-            self.drDataRemote.updateContracts(self.contracts)
+        self.drDataRemote.updateContracts(self.contracts)
 
 
 if __name__ == '__main__':
