@@ -42,6 +42,7 @@ def heartBeat():
     while not stopped.wait(30):
         slavemReport.heartBeat()
 
+    slavemReport.endHeartBeat()
 
 beat = Thread(target=heartBeat, daemon=True)
 
