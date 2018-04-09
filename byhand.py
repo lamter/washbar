@@ -2,6 +2,7 @@ import datetime
 import json
 import traceback
 import os
+import platform
 import logging.config
 from threading import Thread, Event
 from slavem import Reporter
@@ -78,7 +79,8 @@ except:
     e = traceback.format_exc()
     logger.critical(e)
     time.sleep(3)
-    os.system('say "失败，失败，失败"')
+    if platform.system() == "Darwin":
+        os.system('say "失败，失败，失败"')
 
 finally:
     pass
