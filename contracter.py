@@ -216,7 +216,7 @@ class Contracter(Washer):
                     'newVolume': odd.loc[n.symbol, 'volume'],
                 }
 
-                text += '{old} vol:{oldVolume} -> {new} vol:{newVolume} '.format(**dic)
+                text += '{old} vol:{oldVolume} -> {new} vol:{newVolume} \n'.format(**dic)
             except Exception:
                 err = traceback.format_exc()
                 self.log.error(err)
