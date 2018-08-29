@@ -65,7 +65,7 @@ class DRData(object):
         self.originDailyDataByDate = None  # DataFrame()
         self.contractData = {}  # {symbol: Contract()}
         self._active = False
-        self.queue = Queue(10)
+        self.queue = Queue()
         self._run = Thread(target=self.__run, name="{} 存库".format(self.type))
 
     @property
