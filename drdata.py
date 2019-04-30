@@ -60,10 +60,10 @@ class DRData(object):
         self.initContractCollection()
 
         # 原始数据
-        self.originData = {}  # {symbol: DataFrame()}
+        self.originData = {}  # {vtSymbol: DataFrame()}
         self.originDailyData = None  # DataFrame()
         self.originDailyDataByDate = None  # DataFrame()
-        self.contractData = {}  # {symbol: Contract()}
+        self.contractData = {}  # {vtSymbol: Contract()}
         self._active = False
         self.queue = Queue()
         self._run = Thread(target=self.__run, name="{} 存库".format(self.type))
@@ -86,11 +86,11 @@ class DRData(object):
         self.log.info('加载了 {} 条数据'.format(df.shape[0]))
 
         if df.shape[0] > 0:
-            group = df.groupby('symbol').size()
-            for symbol in group.index:
-                # {symbol: DataFrame()}
-                d = df[df.symbol == symbol].sort_values('datetime')
-                self.originData[symbol] = d
+            group = df.groupby('vtSymbol').size()
+            for vtSymbol in group.index:
+                d = df[df.vtSymbol == vtSymbol].sort_values('datetime')
+                # {vtSymbol: dataframe()}
+                self.originData[vtSymbol] = d
 
             self.log.info('加载了 {} 个合约'.format(group.shape[0]))
 
@@ -112,7 +112,7 @@ class DRData(object):
         self.originDailyData = df
 
         if df.shape[0] > 0:
-            group = df.groupby('symbol').size()
+            group = df.groupby('vtSymbol').size()
             self.log.info('加载了 {} 个合约'.format(group.shape[0]))
 
     def loadOriginDailyDataByDate(self, tradingDay):
@@ -132,12 +132,12 @@ class DRData(object):
         self.log.info('加载了 {} 日线条数据'.format(df.shape[0]))
 
         if df.shape[0] > 0:
-            df['underlyingSymbol'] = df.symbol.apply(tt.contract2name)
+            df['underlyingSymbol'] = df.vtSymbol.apply(tt.contract2name)
 
         self.originDailyDataByDate = df
 
         if df.shape[0] > 0:
-            group = df.groupby('symbol').size()
+            group = df.groupby('vtSymbol').size()
             self.log.info('加载了 {} 个合约'.format(group.shape[0]))
 
     def loadContractData(self):
@@ -155,23 +155,23 @@ class DRData(object):
     def _loadContractData(self, cursor):
         for od in cursor:
             c = Contract(od)
-            self.contractData[c.symbol] = c
+            self.contractData[c.vtSymbol] = c
 
     def clearBar(self):
         """
         清除多余的 bar ，如果多个 bar 的 volume 没有递增，说明这些 bar 没有新的成交。只保留第一个 bar
         :return:
         """
-        for symbol, odf in self.originData.items():
-            df = odf[['datetime', 'symbol', 'volume']].copy()
+        for vtSymbol, odf in self.originData.items():
+            df = odf[['datetime', 'vtSymbol', 'volume']].copy()
 
             # 去重后的数据
-            dunplicatedSeries = df.duplicated(['datetime', 'symbol', 'volume'])
+            dunplicatedSeries = df.duplicated(['datetime', 'vtSymbol', 'volume'])
 
             # 更新数据
             ndf = odf[dunplicatedSeries == False]
 
-            self.originData[symbol] = ndf
+            self.originData[vtSymbol] = ndf
 
     def aggreate(self, ndf, localData):
 
@@ -196,11 +196,11 @@ class DRData(object):
 
         insertManyDF = upsertDF[upsertDF._id.isnull()]
 
-        symbol = ndf['symbol'][0]
+        vtSymbol = ndf['vtSymbol'][0]
 
         n = insertManyDF.shape[0]
         if n > 0:
-            self.log.info('{} 补充了 {} 个 bar'.format(symbol, n))
+            self.log.info('{} 补充了 {} 个 bar'.format(vtSymbol, n))
 
         # 批量保存的
         if insertManyDF.shape[0] > 0:
@@ -212,7 +212,7 @@ class DRData(object):
 
         n = upsertDF.shape[0]
         if n > 0:
-            self.log.info('{} 更新到了 {} 个 bar'.format(symbol, 0))
+            self.log.info('{} 更新到了 {} 个 bar'.format(vtSymbol, 0))
         if updateOneDF.shape[0] > 0:
             documents = updateOneDF.to_dict('records')
 
@@ -230,13 +230,14 @@ class DRData(object):
         :return:
         """
         tradingDay = df.tradingDay[0]
-        symbol = df.symbol[0]
+        # symbol = df.symbol[0]
+        vtSymbol = df.vtSymbol[0]
 
         # 先删除这个 tradingDay 中的数据
         data = (
             self.bar_1minCollection.delete_many,
             {
-                'filter': {'tradingDay': tradingDay, 'symbol': symbol}
+                'filter': {'tradingDay': tradingDay, 'vtSymbol': vtSymbol}
             }
         )
         self.queue.put(data, timeout=10)
@@ -286,7 +287,7 @@ class DRData(object):
         :return:
         """
         # 需要建立的索引
-        indexSymbol = IndexModel([('symbol', ASCENDING)], name='symbol', background=True)
+        indexSymbol = IndexModel([('vtSymbol', ASCENDING)], name='vtSymbol', background=True)
         indexTradingDay = IndexModel([('tradingDay', DESCENDING)], name='tradingDay', background=True)
         indexes = [indexSymbol, indexTradingDay]
 
@@ -295,7 +296,7 @@ class DRData(object):
 
     def initContractCollection(self):
         # 需要建立的索引
-        indexSymbol = IndexModel([('symbol', ASCENDING)], name='symbol', background=True)
+        indexSymbol = IndexModel([('vtSymbol', ASCENDING)], name='vtSymbol', background=True)
         indexTradingDay = IndexModel([('tradingDay', DESCENDING)], name='tradingDay', background=True)
         indexUnderlyingSymbol = IndexModel([('underlyingSymbol', DESCENDING)], name='underlyingSymbol', background=True)
         indexes = [indexSymbol, indexTradingDay, indexUnderlyingSymbol]
@@ -329,17 +330,18 @@ class DRData(object):
         :return:
         """
         tradingDay = df.tradingDay[0]
-        symbol = df.symbol[0]
+        # symbol = df.symbol[0]
+        vtSymbol = df.vtSymbol[0]
 
         # 先删除这个 tradingDay 中的数据
-        self.bar_1dayCollection.delete_many({'tradingDay': tradingDay, 'symbol': symbol})
+        self.bar_1dayCollection.delete_many({'tradingDay': tradingDay, 'vtSymbol': vtSymbol})
 
         # 重新将数据填充
         self.bar_1dayCollection.insert_many(df.to_dict('records'))
 
     def updateContracts(self, contracts):
         """
-        :param contracts: {'symbol': Contract()}
+        :param contracts: {'vtSymbol': Contract()}
         :return:
         """
         for c in contracts.values():
@@ -349,6 +351,6 @@ class DRData(object):
                 print(c)
             dic = c.toSave()
             filter = {
-                'symbol': c.symbol,
+                'vtSymbol': c.vtSymbol,
             }
             self.contractCollection.find_one_and_update(filter, {'$set': dic}, upsert=True)

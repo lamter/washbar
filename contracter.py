@@ -133,28 +133,32 @@ class Contracter(Washer):
         contractDic = self.drData.contractData
 
         maxVolumeDf = df[df.volume == df.volume.max()]
-        for symbol in maxVolumeDf.symbol:
-            c = contractDic[symbol]
+        for vtSymbol in maxVolumeDf.vtSymbol:
+            c = contractDic[vtSymbol]
             if activeContract is None:
                 # 尚未有任何主力合约
                 activeContract = c
             else:
-
-                if c.startDate > activeContract.startDate:
-                    # 汇报新旧主力合约替换
-                    log = u'startDate {} {} '.format(c.symbol, c.startDate)
-                    log += u'{} {}'.format(activeContract.symbol, activeContract.startDate)
+                if c.vtSymbol > activeContract.vtSymbol:
+                    # 新的 vtSymbol 字段，可以通过直接对比来排序
+                    log = '{} {}'.format(activeContract.vtSymbol, activeContract.startDate)
                     self.log.info(log)
                     activeContract = c
-                elif c.startDate == activeContract.startDate:
-                    # 已经结束了的合约
-                    if c.endDate > activeContract.endDate:
-                        log = u'endDate {} {} '.format(c.symbol, c.endDate)
-                        log += u'{} {}'.format(activeContract.symbol, activeContract.endDate)
-                        self.log.info(log)
-                        activeContract = c
-                else:  # c.startDate > activeContract.startDate
-                    pass
+                # if c.startDate > activeContract.startDate:
+                #     # 汇报新旧主力合约替换
+                #     log = u'startDate {} {} '.format(c.vtSymbol, c.startDate)
+                #     log += u'{} {}'.format(activeContract.vtSymbol, activeContract.startDate)
+                #     self.log.info(log)
+                #     activeContract = c
+                # elif c.startDate == activeContract.startDate:
+                #     # 已经结束了的合约
+                #     if c.endDate > activeContract.endDate:
+                #         log = u'endDate {} {} '.format(c.vtSymbol, c.endDate)
+                #         log += u'{} {}'.format(activeContract.vtSymbol, activeContract.endDate)
+                #         self.log.info(log)
+                #         activeContract = c
+                # else:  # c.startDate > activeContract.startDate
+                #     pass
 
         if oldActiveContract != activeContract:
             # 主力合约出现变化，汇报
@@ -174,7 +178,7 @@ class Contracter(Washer):
         更新主力合约
         :return:
         """
-        contracts = {c.symbol: c for c in self.activeContractDic.values()}
+        contracts = {c.vtSymbol: c for c in self.activeContractDic.values()}
         self.drData.updateContracts(contracts)
 
         self.drDataRemote.updateContracts(contracts)
@@ -200,20 +204,20 @@ class Contracter(Washer):
 
         # DataFrame
         odd = self.drDataLocal.originDailyDataByDate.copy()
-        odd.set_index('symbol', inplace=True)
+        odd.set_index('vtSymbol', inplace=True)
 
         for o, n in self.activeContractChangeDic.items():
             # 新旧合约变化
             try:
                 try:
-                    oldVolume = odd.loc[o.symbol, 'volume']
+                    oldVolume = odd.loc[o.vtSymbol, 'volume']
                 except KeyError:
                     oldVolume = 0
                 dic = {
-                    'old': o.symbol if o else None,
-                    'new': n.symbol,
+                    'old': o.vtSymbol if o else None,
+                    'new': n.vtSymbol,
                     'oldVolume': oldVolume,
-                    'newVolume': odd.loc[n.symbol, 'volume'],
+                    'newVolume': odd.loc[n.vtSymbol, 'volume'],
                 }
 
                 text += '{old} vol:{oldVolume} -> {new} vol:{newVolume} \n'.format(**dic)

@@ -50,18 +50,18 @@ class AggregateBar(Washer):
         聚合日线数据
         :return:
         """
-        symbolsChain = list(chain(self.drDataLocal.originData.keys(), self.drDataRemote.originData.keys()))
-        self.log.info('共 {} 个合约'.format(len(symbolsChain),))
-        for symbol in symbolsChain:
-            self.aggregatedDayBar(symbol)
+        vtSymbolsChain = list(chain(self.drDataLocal.originData.keys(), self.drDataRemote.originData.keys()))
+        self.log.info('共 {} 个合约'.format(len(vtSymbolsChain),))
+        for vtSymbol in vtSymbolsChain:
+            self.aggregatedDayBar(vtSymbol)
 
-    def aggregatedDayBar(self, symbol):
+    def aggregatedDayBar(self, vtSymbol):
         """
         聚合指定合约的日线数据
-        :param symbol:
+        :param vtSymbol:
         :return:
         """
-        originData = self.drDataLocal.originData.get(symbol)
+        originData = self.drDataLocal.originData.get(vtSymbol)
 
         if originData is None:
             # self.log.warning('symbol {} local 没有数据可以聚合'.format(symbol))

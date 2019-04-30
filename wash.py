@@ -142,18 +142,18 @@ class Washer(object):
         :return:
         """
         # 聚合数据
-        symbolsChain = chain(self.drDataLocal.originData.keys(), self.drDataRemote.originData.keys())
-        for symbol in symbolsChain:
-            self.aggregate(symbol)
+        vtSymbolsChain = chain(self.drDataLocal.originData.keys(), self.drDataRemote.originData.keys())
+        for vtSymbol in vtSymbolsChain:
+            self.aggregate(vtSymbol)
 
-    def aggregate(self, symbol):
+    def aggregate(self, vtSymbol):
         """
         聚合指定合约的数据
-        :param symbol:
+        :param vtSymbol:
         :return:
         """
-        localData = self.drDataLocal.originData.get(symbol)
-        remoteData = self.drDataRemote.originData.get(symbol)
+        localData = self.drDataLocal.originData.get(vtSymbol)
+        remoteData = self.drDataRemote.originData.get(vtSymbol)
 
         # # 整个合约数据丢失
         isNeedAggregate = True
@@ -163,17 +163,17 @@ class Washer(object):
             isNeedAggregate = True
         elif localData is None:
             # 本地完全没有 这个合约的数据
-            # self.drDataLocal.makeupBar(symbol, remoteData)
+            # self.drDataLocal.makeupBar(vtSymbol, remoteData)
             df = remoteData.copy()
             isNeedAggregate = False
         elif remoteData is None:
-            # self.drDataRemote.makeupBar(symbol, localData)
+            # self.drDataRemote.makeupBar(vtSymbol, localData)
             # return
             df = localData.copy()
             isNeedAggregate = False
         else:
             # 两个都是错误的
-            self.log.warning('local 和 remote 都没有 symbol {} 的数据'.format(symbol))
+            self.log.warning('local 和 remote 都没有 vtSymbol {} 的数据'.format(vtSymbol))
             return
 
         # 衔接两地数据
@@ -214,6 +214,7 @@ class Washer(object):
         _open = r.open.first()
         openInterest = r.openInterest.max()
         symbol = df['symbol'][0]  # r.symbol.
+        vtSymbol = df['vtSymbol'][0]  # r.vtSymbol.
         time = r.time.last()
         tradingDay = df['tradingDay'][0]
         # upperLimit = df['upperLimit'][0]
@@ -229,6 +230,7 @@ class Washer(object):
             'open': _open,
             'openInterest': openInterest,
             'symbol': symbol,
+            'vtSymbol': vtSymbol,
             'time': time,
             'tradingDay': tradingDay,
             # 'upperLimit': upperLimit,
@@ -255,6 +257,7 @@ class Washer(object):
         _open = r.open.first()
         openInterest = r.openInterest.last()
         symbol = df['symbol'][0]  # r.symbol.
+        vtSymbol = df['vtSymbol'][0]  # r.vtSymbol.
         time = r.time.last()
         volume = r.volume.sum()
 
@@ -268,6 +271,7 @@ class Washer(object):
             'open': _open,
             'openInterest': openInterest,
             'symbol': symbol,
+            'vtSymbol': vtSymbol,
             'time': time,
             'upperLimit': upperLimit,
             'volume': volume,

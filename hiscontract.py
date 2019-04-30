@@ -40,8 +40,8 @@ class HisContracter(Washer):
         # 日线数据
         if drData.originDailyData.shape[0] == 0:
             return
-        self.dailyBarDF = drData.originDailyData[['symbol', 'tradingDay', 'volume']].copy()
-        self.dailyBarDF['underlyingSymbol'] = self.dailyBarDF['symbol'].apply(tt.contract2name)
+        self.dailyBarDF = drData.originDailyData[['vtSymbol', 'tradingDay', 'volume']].copy()
+        self.dailyBarDF['underlyingSymbol'] = self.dailyBarDF['vtSymbol'].apply(tt.contract2name)
 
         # 根据品种名缓存合约
         self.log.info('根据品种名缓存合约')
@@ -61,7 +61,7 @@ class HisContracter(Washer):
     def updateStartEndDate(self):
         dailyBarDF = self.dailyBarDF
         contracts = self.contracts
-        tradingDays = dailyBarDF.groupby('symbol')['tradingDay']
+        tradingDays = dailyBarDF.groupby('vtSymbol')['tradingDay']
         # 起始日期
         startDates = tradingDays.last()
         endDates = tradingDays.first()
@@ -70,19 +70,19 @@ class HisContracter(Washer):
         dates = dates.reset_index(inplace=False)
 
         for dic in dates.to_dict('record'):
-            # dic = {symbol:'hc1801', 'startDate':datetime(), 'endDate': datetime()}
-            symbol, startDate, endDate = dic['symbol'], dic['startDate'], dic['endDate']
+            # dic = {vtSymbol:'hc1801', 'startDate':datetime(), 'endDate': datetime()}
+            vtSymbol, startDate, endDate = dic['vtSymbol'], dic['startDate'], dic['endDate']
             try:
-                c = contracts[symbol]
+                c = contracts[vtSymbol]
                 c.updateDate(startDate, endDate)
                 assert isinstance(c, Contract)
             except KeyError:
                 # 尚未有这个合约
-                us = tt.contract2name(symbol)
+                us = tt.contract2name(vtSymbol)
                 try:
                     contractsByUnderlying = list(self.contractByUnderlyingSymbol[us])
                 except KeyError:
-                    self.log.warning(u'找不到相同品种的合约 {}'.format(symbol))
+                    self.log.warning(u'找不到相同品种的合约 {}'.format(vtSymbol))
                     continue
 
                 # 采用最新的合约,以防热门合约的保证金变化导数值失真
@@ -93,21 +93,21 @@ class HisContracter(Washer):
                         assert isinstance(c, Contract)
                         c = Contract(c.originData)
                         # 替换掉合约名即可
-                        c.symbol = symbol
-                        c.vtSymbol = symbol
-                        contracts[symbol] = c
+                        # c.symbol = symbol
+                        c.vtSymbol = vtSymbol
+                        contracts[vtSymbol] = c
                         c.updateDate(startDate, endDate)
                         c.activeStartDate = None
                         c.activeEndDate = None
                         break
                 else:
-                    self.log.warning(u'找不到相同品种的合约 {}'.format(symbol))
+                    self.log.warning(u'找不到相同品种的合约 {}'.format(vtSymbol))
                     continue
 
     def refreshContractByUnderlyingSymbol(self):
         contracts = self.contracts
         cbus = self.contractByUnderlyingSymbol
-        for symbol, c in contracts.items():
+        for vtSymbol, c in contracts.items():
             try:
                 cs = cbus[c.underlyingSymbol]
                 cs.add(c)

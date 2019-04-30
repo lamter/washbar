@@ -20,6 +20,7 @@ class Contract(BaseObject):
 
         # 需要保存到数据库 ================
         self.symbol = ''  # 合约名
+        self.vtSymbol = ''  # vt合约名
         self.startDate = None  # 日线数据起始交易日
         self.endDate = None  # 日线数据中止交易日
         self.activeStartDate = None
