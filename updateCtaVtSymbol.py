@@ -99,7 +99,7 @@ class UpdateBarVtSymbol(object):
         for dic in symbol2vtSymbol:
             symbol, vtSymbol = dic['symbol'], dic['vtSymbol']
             print(f'{symbol} -> {vtSymbol}')
-            print(self.col_cta.find({'symbol': symbol}))
+            print(self.col_cta.find({'symbol': symbol}).count())
             self.col_cta.update_many({'symbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
             self.col_orderback.update_many({'symbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
             self.col_pos.update_many({'vtSymbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
