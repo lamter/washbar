@@ -96,12 +96,11 @@ class UpdateBarVtSymbol(object):
         # 读取所有 [{'symbol':'ZC909', 'vtSymbol':'ZC1909.CZCE'}]
         symbol2vtSymbol = self.loadSymbol2vtSymbol()
 
-
         for dic in symbol2vtSymbol:
             symbol, vtSymbol = dic['symbol'], dic['vtSymbol']
             print(f'{symbol} -> {vtSymbol}')
+            print(self.col_cta.find({'symbol': symbol}))
             self.col_cta.update_many({'symbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
-
             self.col_orderback.update_many({'symbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
             self.col_pos.update_many({'vtSymbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
             self.col_trade.update_many({'symbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
