@@ -31,10 +31,11 @@ class UpdateBarVtSymbol(object):
         self.col_contract = self.db[self.contractColName]
 
         self.cta_dbn = self.client[self.col_cta_dbn]
-        self.col_cta = self.db[self.col_cta_name]
-        self.col_orderback = self.db[self.col_orderback_name]
-        self.col_pos = self.db[self.col_pos_name]
-        self.col_trade = self.db[self.col_trade_name]
+        self.col_cta = self.cta_dbn[self.col_cta_name]
+        self.col_orderback = self.cta_dbn[self.col_orderback_name]
+        self.col_pos = self.cta_dbn[self.col_pos_name]
+        self.col_trade = self.cta_dbn[self.col_trade_name]
+
     @property
     def col_cta_dbn(self):
         return self.config[self.section]['cta_dbn']
