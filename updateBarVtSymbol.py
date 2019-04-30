@@ -3,6 +3,7 @@ import json
 import re
 import pandas as pd
 import configparser
+import arrow
 
 
 # logging.config.fileConfig(loggingConfigFile)
@@ -19,50 +20,19 @@ class UpdateBarVtSymbol(object):
         with open(configfile, 'r') as f:
             self.config.read_file(f)
 
-        self.section  ='UpdateBarVtSymbol'
+        CTP_mongo = self.config['CTP_mongo']
+
         # 初始化 MongoDB 链接
-        self.client = self.client = pymongo.MongoClient(
-            host=self.host,
-            port=self.port
+        client = pymongo.MongoClient(
+            host=CTP_mongo['host'],
+            port=CTP_mongo.getint('port'),
         )
 
-        self.db = self.client[self.dbn]
-        self.db.authenticate(self.username, self.password)
-        self.col_contract = self.db[self.contractColName]
-        self.col_1min = self.db[self.col_1min_name]
-        self.col_1day = self.db[self.col_1day_name]
-
-    @property
-    def col_1min_name(self):
-        return self.config[self.section]['bar_1min']
-
-    @property
-    def col_1day_name(self):
-        return self.config[self.section]['bar_1day']
-
-    @property
-    def password(self):
-        return self.config[self.section]['password']
-
-    @property
-    def host(self):
-        return self.config[self.section]['host']
-
-    @property
-    def port(self):
-        return self.config[self.section].getint('port')
-
-    @property
-    def dbn(self):
-        return self.config[self.section]['dbn']
-
-    @property
-    def contractColName(self):
-        return self.config[self.section]['collection']
-
-    @property
-    def username(self):
-        return self.config[self.section]['username']
+        self.db = client[CTP_mongo['dbn']]
+        self.db.authenticate(CTP_mongo['username'], CTP_mongo['password'])
+        self.col_contract = self.db[CTP_mongo['contract']]
+        self.col_1min = self.db[CTP_mongo['bar_1min']]
+        self.col_1day = self.db[CTP_mongo['bar_1day']]
 
     def loadSymbol2vtSymbol(self):
         """
@@ -84,20 +54,30 @@ class UpdateBarVtSymbol(object):
         # bar_1min
         amount = len(symbol2vtSymbol)
         count = 0
+        b = arrow.now().datetime
         for dic in symbol2vtSymbol:
             symbol, vtSymbol = dic['symbol'], dic['vtSymbol']
             self.col_1min.update_many({'symbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
             count += 1
-            print(f'1min {round(count/amount * 100, 2) } %')
+            e = arrow.now().datetime
+            costSecs = (e - b).total_seconds()
+            finished = count / amount
+            needSecs = costSecs / finished * (amount - count) / count
+            print(f'1min {round(finished * 100, 2)} % need {round(needSecs / 60, 1)} min')
 
         # bar_1day
         count = 0
+        b = arrow.now().datetime
         for dic in symbol2vtSymbol:
             symbol, vtSymbol = dic['symbol'], dic['vtSymbol']
             # print(f'{symbol} -> {vtSymbol}')
             self.col_1day.update_many({'symbol': symbol}, {'$set': {'vtSymbol': vtSymbol}})
             count += 1
-            print(f'1day {round(count/amount * 100, 2) } %')
+            e = arrow.now().datetime
+            costSecs = (e - b).total_seconds()
+            finished = count / amount
+            needSecs = costSecs / finished * (amount - count) / count
+            print(f'1day {round(finished * 100, 2)} % need {round(needSecs / 60, 1)} min')
 
 if __name__ == '__main__':
     ucvs = UpdateBarVtSymbol('./tmp/newVtSymbol.ini')

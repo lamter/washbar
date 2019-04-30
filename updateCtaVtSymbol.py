@@ -19,66 +19,31 @@ class UpdateBarVtSymbol(object):
         with open(configfile, 'r') as f:
             self.config.read_file(f)
 
-        self.section = 'UpdateCtaVtSymbol'
+        CTP_mongo = self.config['CTP_mongo']
 
         # 初始化 MongoDB 链接
-        self.client = self.client = pymongo.MongoClient(
-            host=self.host,
-            port=self.port
+        client = pymongo.MongoClient(
+            host=CTP_mongo['host'],
+            port=CTP_mongo.getint('port'),
         )
-        self.db = self.client[self.dbn]
-        self.db.authenticate(self.username, self.password)
-        self.col_contract = self.db[self.contractColName]
 
-        self.cta_dbn = self.client[self.col_cta_dbn]
-        self.col_cta = self.cta_dbn[self.col_cta_name]
-        self.col_orderback = self.cta_dbn[self.col_orderback_name]
-        self.col_pos = self.cta_dbn[self.col_pos_name]
-        self.col_trade = self.cta_dbn[self.col_trade_name]
+        self.db = client[CTP_mongo['dbn']]
+        self.db.authenticate(CTP_mongo['username'], CTP_mongo['password'])
+        self.col_contract = self.db[CTP_mongo['contract']]
 
-    @property
-    def col_cta_dbn(self):
-        return self.config[self.section]['cta_dbn']
+        CTA_mongo = self.config['CTA_mongo']
+        # 初始化 MongoDB 链接
+        client = pymongo.MongoClient(
+            host=CTA_mongo['host'],
+            port=CTA_mongo.getint('port'),
+        )
+        self.db_cta = client[CTA_mongo['dbn']]
+        self.db_cta.authenticate(CTP_mongo['username'], CTP_mongo['password'])
 
-    @property
-    def col_cta_name(self):
-        return self.config[self.section]['cta']
-
-    @property
-    def col_orderback_name(self):
-        return self.config[self.section]['orderback']
-
-    @property
-    def col_pos_name(self):
-        return self.config[self.section]['pos']
-
-    @property
-    def col_trade_name(self):
-        return self.config[self.section]['trade']
-
-    @property
-    def password(self):
-        return self.config[self.section]['password']
-
-    @property
-    def host(self):
-        return self.config[self.section]['host']
-
-    @property
-    def port(self):
-        return self.config[self.section].getint('port')
-
-    @property
-    def dbn(self):
-        return self.config[self.section]['dbn']
-
-    @property
-    def contractColName(self):
-        return self.config[self.section]['collection']
-
-    @property
-    def username(self):
-        return self.config[self.section]['username']
+        self.col_cta = self.db_cta[CTA_mongo['cta']]
+        self.col_orderback = self.db_cta[CTA_mongo['orderback']]
+        self.col_pos = self.db_cta[CTA_mongo['pos']]
+        self.col_trade = self.db_cta[CTA_mongo['trade']]
 
     def loadSymbol2vtSymbol(self):
         """

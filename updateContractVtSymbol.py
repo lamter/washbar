@@ -20,35 +20,17 @@ class UpdateVtSymbol(object):
         with open(configfile, 'r') as f:
             self.config.read_file(f)
 
-        self.section = 'UpdateContractVtSymbol'
+        CTP_mongo = self.config['CTP_mongo']
 
         # 初始化 MongoDB 链接
-        self.client = self.client = pymongo.MongoClient(
-            host=self.host,
-            port=self.port
+        client = pymongo.MongoClient(
+            host=CTP_mongo['host'],
+            port=CTP_mongo.getint('port'),
         )
-        self.db = self.client[self.dbn]
-        self.db.authenticate(self.username, self.password)
-        self.col_contract = self.db[self.contractColName]
 
-    @property
-    def password(self):
-        return self.config[self.section]['password']
-    @property
-    def host(self):
-        return self.config[self.section]['host']
-    @property
-    def port(self):
-        return self.config[self.section].getint('port')
-    @property
-    def dbn(self):
-        return self.config[self.section]['dbn']
-    @property
-    def contractColName(self):
-        return self.config[self.section]['collection']
-    @property
-    def username(self):
-        return self.config[self.section]['username']
+        self.db = client[CTP_mongo['dbn']]
+        self.db.authenticate(CTP_mongo['username'], CTP_mongo['password'])
+        self.col_contract = self.db[CTP_mongo['contract']]
 
     def loadContractDF(self):
         """
@@ -101,7 +83,11 @@ class UpdateVtSymbol(object):
 
         for symbol, vtSymbol in dic.items():
             _filter = {'symbol': symbol}
+            _count = self.col_contract.find(_filter).count()
+            if _count != 0:
+                print(f'{symbol} -> {vtSymbol}')
             self.col_contract.update_one(_filter, {'$set': {'vtSymbol': vtSymbol}})
+
 
 if __name__ == '__main__':
     ucvs = UpdateVtSymbol('./tmp/newVtSymbol.ini')
