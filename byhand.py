@@ -50,24 +50,24 @@ def heartBeat():
 
 beat = Thread(target=heartBeat, daemon=True)
 
-startDate = arrow.get('2011-01-01 00:00:00+08:00').datetime
-endDate = arrow.get('2018-06-25 00:00:00+08:00').datetime
+startDate = arrow.get('2019-05-23 00:00:00+08:00').datetime
+endDate = arrow.get('2019-05-24 00:00:00+08:00').datetime
 
 tradingDay = startDate
 
 try:
     while tradingDay <= endDate:
         # 清洗数据
-        # w = Washer(startDate=tradingDay, **kwargs)
-        # w.start()
-        #
-        # # 聚合日线数据
-        # a = AggregateBar(startDate=tradingDay, **kwargs)
-        # a.start()
-        #
-        # # 更新合约的始末日期
-        # h = HisContracter(startDate=tradingDay, **kwargs)
-        # h.start()
+        w = Washer(startDate=tradingDay, **kwargs)
+        w.start()
+
+        # 聚合日线数据
+        a = AggregateBar(startDate=tradingDay, **kwargs)
+        a.start()
+
+        # 更新合约的始末日期
+        h = HisContracter(startDate=tradingDay, **kwargs)
+        h.start()
 
         # 生成主力合约数据
         c = Contracter(startDate=tradingDay, **kwargs)
